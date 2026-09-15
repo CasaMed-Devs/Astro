@@ -1,0 +1,47 @@
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+android/
+ios/
+
+# Firebase
+google-services.json
+GoogleService-Info.plist
+*.firebase-service-account.json
+
+# Env
+.env
+.env.local
+functions/.env
+
+# Backend build output
+functions/lib/
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Testing
+coverage/
+
+# Source assets not needed at runtime
+assets/images/logo-source.png

@@ -1,0 +1,17 @@
+{
+  "_comment": "Placeholder only. Download the real google-services.json from your Firebase project (Project settings > Your apps > Android app, package name com.astro101.app) and save it as ./google-services.json at the project root. That real file is git-ignored and must never be committed.",
+  "project_info": {
+    "project_id": "YOUR_FIREBASE_PROJECT_ID"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "YOUR_MOBILESDK_APP_ID",
+        "android_client_info": {
+          "package_name": "com.astro101.app"
+        }
+      },
+      "api_key": [{ "current_key": "YOUR_ANDROID_API_KEY" }]
+    }
+  ]
+}

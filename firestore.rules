@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // The app no longer authenticates directly against Firebase (OTP
+    // verification and session tokens are handled by our own backend via
+    // voicenSMS + a custom JWT — see functions/src/services/token.service.ts).
+    // request.auth is therefore always null for client requests, so every
+    // collection below is backend-only (Admin SDK bypasses these rules).
+    // Only clearly public, read-only reference content is exposed to clients.
+
+    match /users/{uid} {
+      allow read, write: if false;
+    }
+
+    match /chats/{chatId} {
+      allow read, write: if false;
+
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /subscriptions/{uid} {
+      allow read, write: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /reports/{uid} {
+      allow read, write: if false;
+    }
+
+    match /otps/{phoneNumber} {
+      allow read, write: if false;
+    }
+
+    // Public, read-only reference content.
+    match /horoscopes/{sign}/daily/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /appConfig/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
