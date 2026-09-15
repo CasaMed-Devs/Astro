@@ -1,5 +1,6 @@
 {
-  "buildCommand": null,
+  "buildCommand": "echo 'No build needed - Vercel compiles api/*.ts directly'",
+  "outputDirectory": "public",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
   "functions": {
     "api/index.ts": { "maxDuration": 60 }
