@@ -1,4 +1,16 @@
 /**
+ * Different hosts store multi-line env vars differently — some platforms'
+ * dashboards keep real line breaks, others flatten to literal "\n", and a
+ * value pasted with surrounding quotes is an easy mistake. Normalize all of
+ * that so a valid PEM key is accepted regardless of how it got here.
+ */
+function normalizePrivateKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const unquoted = raw.trim().replace(/^(['"])([\s\S]*)\1$/, '$2');
+  return unquoted.replace(/\\n/g, '\n');
+}
+
+/**
  * Central place to read environment configuration. Nothing here throws at
  * import time — individual services validate the specific vars they need
  * lazily, so the server can boot (and unrelated routes keep working) even
@@ -10,7 +22,7 @@ export const env = {
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    privateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
   },
 
   auth: {
