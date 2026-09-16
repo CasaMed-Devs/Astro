@@ -29,6 +29,26 @@ export async function confirmOtp(phoneNumber: string, code: string): Promise<Ses
   }
 }
 
+/**
+ * Dev-only phone/OTP skip for manual testing. Only succeeds against a
+ * backend that has ENABLE_DEV_LOGIN=true set (off by default everywhere);
+ * only call this from a __DEV__-gated UI.
+ */
+export async function devLogin(): Promise<Session> {
+  try {
+    const { token, uid, phoneNumber } = await apiClient.post<{
+      token: string;
+      uid: string;
+      phoneNumber: string;
+    }>('/auth/dev-login');
+    const session: Session = { token, uid, phoneNumber };
+    await setSession(session);
+    return session;
+  } catch (error) {
+    throw toAppError(error);
+  }
+}
+
 /** Restores a persisted session at app start. Call once before rendering auth-dependent UI. */
 export function restoreSession(): Promise<Session | null> {
   return loadSession();

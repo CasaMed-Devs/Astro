@@ -190,8 +190,9 @@ export async function getMahaDasas(birth: BirthDateTime, geo: GeoDetails): Promi
 export async function calculateKundali(
   birth: BirthDateTime,
   placeOfBirth: string,
+  geoOverride?: GeoDetails,
 ): Promise<KundaliData> {
-  const geo = await getGeoDetails(placeOfBirth);
+  const geo = geoOverride ?? (await getGeoDetails(placeOfBirth));
   const [planets, mahaDasas] = await Promise.all([
     getPlanetaryPositions(birth, geo),
     getMahaDasas(birth, geo),

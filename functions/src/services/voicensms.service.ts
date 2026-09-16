@@ -44,6 +44,7 @@ export async function sendOtpSms(phoneNumber: string, code: string): Promise<voi
 
   let response: Response;
   try {
+    console.log("otp request", OTP_MESSAGE_TEMPLATE(code))
     response = await fetch(`${VOICENSMS_API_URL}?${params.toString()}`, { method: 'GET' });
   } catch (error) {
     throw new SmsSendFailedError(error instanceof Error ? error.message : String(error));

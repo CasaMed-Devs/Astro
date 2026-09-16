@@ -10,6 +10,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
+  timeoutMs?: number;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -18,7 +19,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   try {
     const token = getSession()?.token;
@@ -77,5 +78,6 @@ function mapErrorResponse(status: number, payload: unknown): AppError {
 
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
+  post: <T>(path: string, body?: unknown, options?: { timeoutMs?: number }) =>
+    request<T>(path, { method: 'POST', body, timeoutMs: options?.timeoutMs }),
 };

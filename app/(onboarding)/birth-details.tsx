@@ -7,6 +7,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Input } from '@/components/forms/Input';
+import { PlaceAutocompleteInput } from '@/components/forms/PlaceAutocompleteInput';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { saveBirthDetails } from '@/services/user.service';
@@ -40,9 +41,11 @@ const GENDER_OPTIONS: { label: string; value: Gender }[] = [
 export default function BirthDetailsScreen() {
   const { session, hasBirthDetails, refreshProfile } = useAuth();
   const [form, setForm] = useState<BirthDetailsFormState>({
+    fullName: '',
     dateOfBirth: null,
     timeOfBirth: null,
     placeOfBirth: '',
+    place: null,
     gender: null,
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -87,9 +90,13 @@ export default function BirthDetailsScreen() {
     try {
       await withTimeout(
         saveBirthDetails({
+          name: form.fullName.trim(),
           dateOfBirth: formatDate(form.dateOfBirth!),
           timeOfBirth: formatTime(form.timeOfBirth!),
           placeOfBirth: form.placeOfBirth.trim(),
+          latitude: form.place!.latitude,
+          longitude: form.place!.longitude,
+          timezoneOffset: form.place!.timezoneOffset,
           gender: form.gender!,
         }),
         SAVE_TIMEOUT_MS,
@@ -118,6 +125,15 @@ export default function BirthDetailsScreen() {
           The exact time and place decide your ascendant. Get these right and every prediction gets
           sharper.
         </AppText>
+      </View>
+
+      <View style={styles.field}>
+        <AppText variant="label">Full Name</AppText>
+        <Input
+          value={form.fullName}
+          onChangeText={(text) => setForm((prev) => ({ ...prev, fullName: text }))}
+          placeholder="Your full name"
+        />
       </View>
 
       <View style={styles.field}>
@@ -171,10 +187,11 @@ export default function BirthDetailsScreen() {
 
       <View style={styles.field}>
         <AppText variant="label">Place of birth</AppText>
-        <Input
+        <PlaceAutocompleteInput
           value={form.placeOfBirth}
           onChangeText={(text) => setForm((prev) => ({ ...prev, placeOfBirth: text }))}
-          placeholder="Jaipur, Rajasthan"
+          onResolved={(place) => setForm((prev) => ({ ...prev, place }))}
+          timestampSeconds={Math.floor((form.dateOfBirth ?? new Date()).getTime() / 1000)}
         />
       </View>
 

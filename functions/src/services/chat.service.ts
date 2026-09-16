@@ -1,142 +1,166 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getPersonaById } from '../config/personas';
-import { generateAstrologerReply } from './ai.service';
+import { getCreditCost } from '../config/personaPricing';
+import { listConversationMessages, sendChatMessage } from './personaApi.service';
+import type { PersonaChatMeta } from './personaApi.service';
 import { assertAndConsumeEntitlement, getRemainingCredits } from './credits.service';
-import { NotFoundError, UnauthorizedError } from '../utils/errors';
-import type { ChatMessageRecord } from '../types';
+import { NotFoundError, PersonaConversationNotFoundError, UnauthorizedError } from '../utils/errors';
+import type { UserProfileRecord } from '../types';
 
-const HISTORY_LIMIT = 20;
+interface PersonaChatRecord {
+  userId: string;
+  profileId: string;
+}
 
-interface ChatRecord {
+/** Deterministic id so re-opening a persona always resumes the same conversation. */
+function buildSessionId(uid: string, profileId: string): string {
+  return `${uid}_${profileId}`;
+}
+
+export interface ChatMeta {
+  id: string;
   userId: string;
   personaId: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessage?: string;
+}
+
+/**
+ * Only a thin ownership doc lives in Firestore now — the Persona API is the
+ * source of truth for message history (see listMessages/handleUserMessage).
+ */
+export async function getOrCreateChat(uid: string, profileId: string): Promise<ChatMeta> {
+  const sessionId = buildSessionId(uid, profileId);
+  const ref = adminFirestore().collection('personaChats').doc(sessionId);
+  const snapshot = await ref.get();
+
+  const now = new Date().toISOString();
+
+  if (!snapshot.exists) {
+    await ref.set({ userId: uid, profileId, createdAt: FieldValue.serverTimestamp() });
+    return { id: sessionId, userId: uid, personaId: profileId, createdAt: now, updatedAt: now };
+  }
+
+  const data = snapshot.data();
+  return {
+    id: sessionId,
+    userId: data.userId,
+    personaId: data.profileId,
+    createdAt: data.createdAt?.toDate?.()?.toISOString() ?? now,
+    updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? now,
+    lastMessage: data.lastMessage,
+  };
+}
+
+async function requireOwnedChat(uid: string, chatId: string): Promise<PersonaChatRecord> {
+  const ref = adminFirestore().collection('personaChats').doc(chatId);
+  const snapshot = await ref.get();
+
+  if (!snapshot.exists) {
+    throw new NotFoundError('Chat not found.');
+  }
+
+  const chat = snapshot.data() as PersonaChatRecord;
+  if (chat.userId !== uid) {
+    throw new UnauthorizedError('This chat does not belong to you.');
+  }
+
+  return chat;
+}
+
+/** Auto-fills already-saved birth details; client-supplied context wins on overlap. */
+async function buildContextForUser(
+  uid: string,
+  clientContext?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const snapshot = await adminFirestore().collection('users').doc(uid).get();
+  const profile = snapshot.data() as UserProfileRecord | undefined;
+
+  const autoContext: Record<string, string> = {};
+  if (profile?.dateOfBirth) autoContext.dob = profile.dateOfBirth;
+  if (profile?.timeOfBirth) autoContext.tob = profile.timeOfBirth;
+  if (profile?.placeOfBirth) autoContext.pob = profile.placeOfBirth;
+
+  return { ...autoContext, ...clientContext };
 }
 
 export interface HandleUserMessageResult {
   reply: string;
+  paragraphs: string[];
+  meta?: PersonaChatMeta;
   remainingCredits: number | null;
 }
 
 export async function handleUserMessage(
   uid: string,
   chatId: string,
-  personaId: string,
+  profileId: string,
   userMessage: string,
+  context?: Record<string, string>,
 ): Promise<HandleUserMessageResult> {
-  const db = adminFirestore();
-  const chatRef = db.collection('chats').doc(chatId);
-  const chatSnapshot = await chatRef.get();
+  await requireOwnedChat(uid, chatId);
 
-  if (!chatSnapshot.exists) {
-    throw new NotFoundError('Chat not found.');
-  }
+  await assertAndConsumeEntitlement(uid, getCreditCost(profileId));
 
-  const chat = chatSnapshot.data() as ChatRecord;
-  if (chat.userId !== uid) {
-    throw new UnauthorizedError('This chat does not belong to you.');
-  }
-
-  const persona = getPersonaById(personaId);
-  if (!persona) {
-    throw new NotFoundError('Astrologer persona not found.');
-  }
-
-  await assertAndConsumeEntitlement(uid, persona.creditCostPerMessage);
-
-  await chatRef.collection('messages').add({
-    sender: 'user',
-    text: userMessage,
-    createdAt: FieldValue.serverTimestamp(),
-    status: 'sent',
-  });
-
-  const historySnapshot = await chatRef
-    .collection('messages')
-    .orderBy('createdAt', 'desc')
-    .limit(HISTORY_LIMIT)
-    .get();
-
-  const history: ChatMessageRecord[] = historySnapshot.docs
-    .map((doc) => doc.data() as ChatMessageRecord)
-    .reverse();
-
-  const reply = await generateAstrologerReply(persona.systemPrompt, history, userMessage);
-
-  await chatRef.collection('messages').add({
-    sender: 'astrologer',
-    text: reply,
-    createdAt: FieldValue.serverTimestamp(),
-    status: 'delivered',
-  });
-
-  await chatRef.update({
-    lastMessage: reply,
-    updatedAt: FieldValue.serverTimestamp(),
+  const mergedContext = await buildContextForUser(uid, context);
+  const result = await sendChatMessage({
+    profileId,
+    sessionId: chatId,
+    userId: uid,
+    message: userMessage,
+    context: mergedContext,
   });
 
   const remainingCredits = await getRemainingCredits(uid);
-  return { reply, remainingCredits };
-}
 
-function buildChatId(userId: string, personaId: string): string {
-  return `${userId}_${personaId}`;
-}
-
-/** Deterministic id so re-opening a persona always resumes the same conversation. */
-export async function getOrCreateChat(uid: string, personaId: string): Promise<string> {
-  if (!getPersonaById(personaId)) {
-    throw new NotFoundError('Astrologer persona not found.');
-  }
-
-  const chatId = buildChatId(uid, personaId);
-  const chatRef = adminFirestore().collection('chats').doc(chatId);
-  const snapshot = await chatRef.get();
-
-  if (!snapshot.exists) {
-    await chatRef.set({
-      userId: uid,
-      personaId,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-  }
-
-  return chatId;
+  return {
+    reply: result.reply.text,
+    paragraphs: result.reply.paragraphs,
+    meta: result.meta,
+    remainingCredits,
+  };
 }
 
 export interface ChatMessageResponse {
   id: string;
-  sender: ChatMessageRecord['sender'];
+  sender: 'user' | 'astrologer';
   text: string;
-  status: string;
   createdAt: string | null;
 }
 
-export async function listMessages(uid: string, chatId: string): Promise<ChatMessageResponse[]> {
-  const chatRef = adminFirestore().collection('chats').doc(chatId);
-  const chatSnapshot = await chatRef.get();
+export interface ListMessagesResult {
+  messages: ChatMessageResponse[];
+  hasMore: boolean;
+  nextCursor: number | null;
+}
 
-  if (!chatSnapshot.exists) {
-    throw new NotFoundError('Chat not found.');
-  }
+export async function listMessages(
+  uid: string,
+  chatId: string,
+  opts: { limit?: number; before?: number },
+): Promise<ListMessagesResult> {
+  await requireOwnedChat(uid, chatId);
 
-  const chat = chatSnapshot.data() as ChatRecord;
-  if (chat.userId !== uid) {
-    throw new UnauthorizedError('This chat does not belong to you.');
-  }
-
-  const messagesSnapshot = await chatRef.collection('messages').orderBy('createdAt', 'asc').get();
-
-  return messagesSnapshot.docs.map((doc) => {
-    const data = doc.data();
+  try {
+    const page = await listConversationMessages(chatId, opts);
     return {
-      id: doc.id,
-      sender: data.sender,
-      text: data.text,
-      status: data.status,
-      createdAt: data.createdAt?.toDate?.().toISOString() ?? null,
+      messages: page.messages.map((message) => ({
+        id: String(message.seq),
+        sender: message.role === 'user' ? 'user' : 'astrologer',
+        text: message.text,
+        createdAt: new Date(message.at).toISOString(),
+      })),
+      hasMore: page.has_more,
+      nextCursor: page.next_cursor,
     };
-  });
+  } catch (error) {
+    // A brand-new chat has no vendor-side conversation until the first
+    // message is sent — that's an empty history, not an error.
+    if (error instanceof PersonaConversationNotFoundError) {
+      return { messages: [], hasMore: false, nextCursor: null };
+    }
+    throw error;
+  }
 }

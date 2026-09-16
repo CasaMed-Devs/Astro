@@ -7,12 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "astro101",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FEFCF3"
-    },
     "assetBundlePatterns": ["**/*"],
     "android": {
       "package": "com.astro101",
@@ -29,14 +23,20 @@
     },
     "plugins": [
       "expo-router",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FEFCF3"
+        }
+      ],
       "expo-system-ui",
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
       ["expo-build-properties", { "android": { "useLegacyPackaging": false } }]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "newArchEnabled": true
     }
   }
 }

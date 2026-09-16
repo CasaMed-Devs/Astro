@@ -22,6 +22,7 @@ export async function getMyReport(req: Request, res: Response): Promise<void> {
   res.json({
     status: data.status,
     content: data.content,
+    kundali: data.kundali ?? null,
     generatedAt: serializeTimestamp(data.generatedAt),
   });
 }
@@ -44,4 +45,13 @@ export async function getMySubscription(req: Request, res: Response): Promise<vo
     currentPeriodStart: serializeTimestamp(data.currentPeriodStart),
     currentPeriodEnd: serializeTimestamp(data.currentPeriodEnd),
   });
+}
+
+import { generateAndStoreReport, markReportPending } from '../services/report.service';
+
+export async function generateReport(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+  await markReportPending(req.uid);
+  generateAndStoreReport(req.uid).catch(console.error);
+  res.json({ status: 'pending' });
 }

@@ -2,10 +2,12 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { generateAstrologerReply } from './ai.service';
-import { calculateKundali, type KundaliData } from './astrology.service';
+import { calculateKundali, type GeoDetails, type KundaliData } from './astrology.service';
 import { parseBirthDateTime } from '../utils/birthDateTime';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
+
+export type { KundaliData };
 
 const REPORT_SYSTEM_PROMPT =
   'You are an AI Vedic astrologer writing a detailed personal life report from a real, ' +
@@ -80,7 +82,37 @@ export async function generateAndStoreReport(uid: string): Promise<void> {
     }
 
     const birth = parseBirthDateTime(user.dateOfBirth, user.timeOfBirth);
-    const kundali = await calculateKundali(birth, user.placeOfBirth);
+
+    const geoOverride: GeoDetails | undefined =
+      user.latitude != null && user.longitude != null && user.timezoneOffset != null
+        ? {
+            latitude: user.latitude,
+            longitude: user.longitude,
+            timezoneOffset: user.timezoneOffset,
+            completeName: user.placeOfBirth,
+          }
+        : undefined;
+
+    const kundali = await calculateKundali(birth, user.placeOfBirth, geoOverride);
+
+    // Firestore rejects `undefined` — strip optional planet fields that may be absent.
+    const firestoreKundali = {
+      ...kundali,
+      planets: kundali.planets.map((p) => {
+        const planet: Record<string, unknown> = {
+          name: p.name,
+          fullDegree: p.fullDegree,
+          normDegree: p.normDegree,
+          isRetrograde: p.isRetrograde,
+          currentSign: p.currentSign,
+        };
+        if (p.houseNumber !== undefined) planet.houseNumber = p.houseNumber;
+        return planet;
+      }),
+    };
+
+    // Save kundali data immediately — chart is visible even if AI step fails.
+    await reportRef.set({ kundali: firestoreKundali }, { merge: true });
 
     const prompt = [
       `Name: ${user.name ?? 'the user'}. Gender: ${user.gender ?? 'unspecified'}.`,

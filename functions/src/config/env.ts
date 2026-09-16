@@ -6,8 +6,25 @@
  */
 function normalizePrivateKey(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
-  const unquoted = raw.trim().replace(/^(['"])([\s\S]*)\1$/, '$2');
-  return unquoted.replace(/\\n/g, '\n');
+  let key = raw.trim();
+  while (/^(['"])[\s\S]*\1$/.test(key)) {
+    key = key.slice(1, -1).trim();
+  }
+  return key.replace(/\\r\\n|\\n|\\r/g, '\n').replace(/\r\n/g, '\n');
+}
+
+/**
+ * FIREBASE_PRIVATE_KEY_B64 (the private key, base64-encoded) sidesteps every
+ * quoting/newline-mangling issue a dashboard or shell can introduce, since a
+ * base64 string has no quotes, newlines, or other special characters left to
+ * corrupt. Prefer it when set; fall back to the raw/escaped key otherwise.
+ */
+function resolvePrivateKey(): string | undefined {
+  const b64 = process.env.FIREBASE_PRIVATE_KEY_B64?.trim();
+  if (b64) {
+    return normalizePrivateKey(Buffer.from(b64, 'base64').toString('utf8'));
+  }
+  return normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
 }
 
 /**
@@ -22,7 +39,7 @@ export const env = {
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
+    privateKey: resolvePrivateKey(),
   },
 
   auth: {
@@ -52,8 +69,24 @@ export const env = {
     freeAstrologyApiKey: process.env.FREE_ASTROLOGY_API_KEY,
   },
 
+  google: {
+    placesApiKey: process.env.GOOGLE_PLACES_API_KEY,
+  },
+
+  personaApi: {
+    apiKey: process.env.PERSONA_API_KEY,
+  },
+
   credits: {
     freeMessageCredits: Number(process.env.FREE_MESSAGE_CREDITS ?? 10),
+  },
+
+  devLogin: {
+    // Opt-in only, off by default everywhere including local dev — never
+    // enabled by NODE_ENV/deploy-target guesswork. Set ENABLE_DEV_LOGIN=true
+    // locally to expose a phone/OTP skip for manual testing.
+    enabled: process.env.ENABLE_DEV_LOGIN === 'true',
+    testPhoneNumber: process.env.DEV_LOGIN_PHONE ?? '+911234567890',
   },
 
   reportPrice: {

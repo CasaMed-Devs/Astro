@@ -7,9 +7,13 @@ import { NotFoundError, UnauthorizedError } from '../utils/errors';
 import type { Gender, UserProfileRecord } from '../types';
 
 const birthDetailsSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
   dateOfBirth: z.string().min(1),
   timeOfBirth: z.string().min(1),
   placeOfBirth: z.string().min(1),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  timezoneOffset: z.number().optional(),
   gender: z.enum(['female', 'male', 'other']) as z.ZodType<Gender>,
 });
 
@@ -27,6 +31,9 @@ function serializeProfile(uid: string, data: UserProfileRecord & { createdAt?: T
     dateOfBirth: data.dateOfBirth,
     timeOfBirth: data.timeOfBirth,
     placeOfBirth: data.placeOfBirth,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    timezoneOffset: data.timezoneOffset,
     gender: data.gender,
     credits: data.credits ?? 0,
     createdAt: serializeTimestamp(data.createdAt),

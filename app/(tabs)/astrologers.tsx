@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { Search } from 'lucide-react-native';
 import { router } from 'expo-router';
@@ -7,31 +7,42 @@ import { AppText } from '@/components/common/AppText';
 import { Input } from '@/components/forms/Input';
 import { Screen } from '@/components/common/Screen';
 import { EmptyView } from '@/components/states/EmptyView';
+import { ErrorView } from '@/components/states/ErrorView';
+import { LoadingView } from '@/components/states/LoadingView';
 import { PersonaCard } from '@/features/astrologers/components/PersonaCard';
-import { SpecialtyFilterChip } from '@/features/astrologers/components/SpecialtyFilterChip';
-import { astrologerPersonas } from '@/features/astrologers/config/personas';
-import { SPECIALTY_LABELS, type PersonaSpecialty } from '@/features/astrologers/types';
+import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, spacing } from '@/constants/theme';
-
-const FILTERS: { label: string; value: PersonaSpecialty | 'all' }[] = [
-  { label: 'All', value: 'all' },
-  { label: SPECIALTY_LABELS.kundali, value: 'kundali' },
-  { label: SPECIALTY_LABELS.tarot, value: 'tarot' },
-  { label: SPECIALTY_LABELS.palmistry, value: 'palmistry' },
-  { label: SPECIALTY_LABELS.numerology, value: 'numerology' },
-];
+import { AppError } from '@/utils/errors';
 
 export default function AstrologersScreen() {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<PersonaSpecialty | 'all'>('all');
+  const [personas, setPersonas] = useState<AstrologerProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const profiles = await fetchAstrologerProfiles();
+      setPersonas(profiles);
+    } catch (err) {
+      setError(err instanceof AppError ? err.message : 'Could not load astrologers.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filteredPersonas = useMemo(() => {
-    return astrologerPersonas.filter((persona) => {
-      const matchesFilter = filter === 'all' || persona.specialties.includes(filter);
-      const matchesQuery = persona.name.toLowerCase().includes(query.trim().toLowerCase());
-      return matchesFilter && matchesQuery;
-    });
-  }, [query, filter]);
+    const search = query.trim().toLowerCase();
+    if (!search) return personas;
+    return personas.filter((persona) => persona.name.toLowerCase().includes(search));
+  }, [query, personas]);
 
   return (
     <Screen padded={false}>
@@ -51,46 +62,31 @@ export default function AstrologersScreen() {
         />
       </View>
 
-      <FlatList
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        data={FILTERS}
-        keyExtractor={(item) => item.value}
-        contentContainerStyle={styles.filterRow}
-        renderItem={({ item }) => (
-          <SpecialtyFilterChip
-            label={item.label}
-            selected={filter === item.value}
-            onPress={() => setFilter(item.value)}
-          />
-        )}
-      />
-
-      <FlatList
-        data={filteredPersonas}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
-        renderItem={({ item }) => (
-          <PersonaCard persona={item} onPress={() => router.push(`/astrologer/${item.id}`)} />
-        )}
-        ListEmptyComponent={
-          <EmptyView title="No astrologers found" message="Try a different search or filter." />
-        }
-      />
+      {loading ? (
+        <LoadingView message="Loading astrologers..." />
+      ) : error ? (
+        <ErrorView message={error} onRetry={load} />
+      ) : (
+        <FlatList
+          data={filteredPersonas}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          renderItem={({ item }) => (
+            <PersonaCard persona={item} onPress={() => router.push(`/astrologer/${item.id}`)} />
+          )}
+          ListEmptyComponent={
+            <EmptyView title="No astrologers found" message="Try a different search." />
+          }
+        />
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.xl, gap: spacing.xs, marginTop: spacing.md },
-  searchWrap: { paddingHorizontal: spacing.xl, marginTop: spacing.lg },
-  filterRow: {
-    paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-    paddingBottom: spacing.sm,
-  },
+  searchWrap: { paddingHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.lg },
   listContent: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.sm,

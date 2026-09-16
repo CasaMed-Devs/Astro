@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { Crown, Sparkles } from 'lucide-react-native';
@@ -7,13 +8,20 @@ import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { useSubscription } from '@/features/payments/context/SubscriptionProvider';
 import { PersonaCard } from '@/features/astrologers/components/PersonaCard';
-import { astrologerPersonas } from '@/features/astrologers/config/personas';
+import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, radii, spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
   const { profile } = useAuth();
   const { isActive } = useSubscription();
-  const featuredPersonas = astrologerPersonas.slice(0, 3);
+  const [astrologers, setAstrologers] = useState<AstrologerProfile[]>([]);
+
+  useEffect(() => {
+    fetchAstrologerProfiles()
+      .then((profiles) => setAstrologers(profiles))
+      .catch(() => setAstrologers([]));
+  }, []);
 
   return (
     <Screen padded={false} scroll>
@@ -45,11 +53,11 @@ export default function HomeScreen() {
 
       <View style={styles.sectionHeader}>
         <Sparkles size={18} color={colors.primary} />
-        <AppText variant="cardTitle">Featured astrologers</AppText>
+        <AppText variant="cardTitle">Astrologers</AppText>
       </View>
 
       <FlatList
-        data={featuredPersonas}
+        data={astrologers}
         keyExtractor={(item) => item.id}
         scrollEnabled={false}
         contentContainerStyle={styles.listContent}

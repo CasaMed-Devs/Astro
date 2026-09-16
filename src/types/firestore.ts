@@ -7,6 +7,9 @@ export interface UserProfile {
   dateOfBirth?: string;
   timeOfBirth?: string;
   placeOfBirth?: string;
+  latitude?: number;
+  longitude?: number;
+  timezoneOffset?: number;
   gender?: Gender;
   credits: number;
   createdAt?: string;
@@ -25,12 +28,20 @@ export interface ChatDoc {
   lastMessage?: string;
 }
 
+export interface ChatReplyMeta {
+  cards?: unknown;
+  leaning?: unknown;
+  timing?: unknown;
+  remedy?: unknown;
+}
+
 export interface ChatMessageDoc {
   id: string;
   sender: MessageSender;
   text: string;
   createdAt: string | null;
   status: MessageStatus;
+  meta?: ChatReplyMeta;
 }
 
 export type SubscriptionStatus = 'active' | 'pending' | 'cancelled' | 'expired' | 'failed';
@@ -61,8 +72,30 @@ export interface PaymentDoc {
 
 export type ReportStatus = 'pending' | 'ready' | 'failed';
 
+export interface ReportPlanet {
+  name: string;
+  fullDegree: number;
+  normDegree: number;
+  isRetrograde: boolean;
+  currentSign: number;
+  houseNumber?: number;
+}
+
+export interface ReportDasha {
+  lord: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface ReportKundali {
+  geo: { latitude: number; longitude: number; timezoneOffset: number; completeName: string };
+  planets: ReportPlanet[];
+  mahaDasas: ReportDasha[];
+}
+
 export interface ReportDoc {
   status: ReportStatus;
   content?: string;
+  kundali?: ReportKundali;
   generatedAt?: string;
 }

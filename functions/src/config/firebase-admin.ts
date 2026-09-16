@@ -16,7 +16,18 @@ function createApp(): App {
   }
 
   if (env.firebase.projectId && env.firebase.clientEmail && env.firebase.privateKey) {
+    if (!env.firebase.privateKey.includes('BEGIN PRIVATE KEY')) {
+      // Never log the key itself — just enough shape info to diagnose a bad
+      // FIREBASE_PRIVATE_KEY / FIREBASE_PRIVATE_KEY_B64 value without a leak.
+      console.error('[firebase-admin] FIREBASE_PRIVATE_KEY does not look like a valid PEM key after normalization', {
+        length: env.firebase.privateKey.length,
+        startsWith: env.firebase.privateKey.slice(0, 15),
+        newlineCount: (env.firebase.privateKey.match(/\n/g) ?? []).length,
+      });
+    }
+
     return initializeApp({
+      projectId: env.firebase.projectId,
       credential: cert({
         projectId: env.firebase.projectId,
         clientEmail: env.firebase.clientEmail,
@@ -25,7 +36,11 @@ function createApp(): App {
     });
   }
 
-  return initializeApp();
+  if (env.firebase.projectId) {
+    return initializeApp({ projectId: env.firebase.projectId });
+  }
+
+  return initializeApp({ projectId: 'astro-d9814' });
 }
 
 const app = createApp();

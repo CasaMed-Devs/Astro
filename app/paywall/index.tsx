@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { Check, Crown, X } from 'lucide-react-native';
@@ -8,7 +8,8 @@ import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { getDefaultPlan } from '@/features/payments/config/plans';
-import { personaAvatarSources, astrologerPersonas } from '@/features/astrologers/config/personas';
+import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import type { AstrologerProfile } from '@/features/astrologers/types';
 import {
   createSubscriptionOrder,
   openRazorpayCheckout,
@@ -23,6 +24,13 @@ export default function PaywallScreen() {
   const pricingReady = plan.price != null && plan.currency != null;
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [avatarPersonas, setAvatarPersonas] = useState<AstrologerProfile[]>([]);
+
+  useEffect(() => {
+    fetchAstrologerProfiles()
+      .then((profiles) => setAvatarPersonas(profiles.slice(0, 6)))
+      .catch(() => setAvatarPersonas([]));
+  }, []);
 
   const handleSubscribe = async () => {
     if (!pricingReady) return;
@@ -75,12 +83,8 @@ export default function PaywallScreen() {
       </View>
 
       <View style={styles.avatarStrip}>
-        {astrologerPersonas.slice(0, 6).map((persona) => (
-          <Image
-            key={persona.id}
-            source={personaAvatarSources[persona.avatar]}
-            style={styles.avatar}
-          />
+        {avatarPersonas.map((persona) => (
+          <Image key={persona.id} source={{ uri: persona.photoUrl }} style={styles.avatar} />
         ))}
       </View>
       <AppText variant="bodySmall" color={colors.textSecondary} style={styles.avatarCaption}>

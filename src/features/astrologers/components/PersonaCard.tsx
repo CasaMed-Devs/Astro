@@ -1,42 +1,28 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import { Star } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
-import { personaAvatarSources } from '@/features/astrologers/config/personas';
-import { SPECIALTY_LABELS, type AstrologerPersona } from '@/features/astrologers/types';
+import type { AstrologerProfile } from '@/features/astrologers/types';
 
 type PersonaCardProps = {
-  persona: AstrologerPersona;
+  persona: AstrologerProfile;
   onPress: () => void;
 };
 
 export function PersonaCard({ persona, onPress }: PersonaCardProps) {
   return (
     <Pressable onPress={onPress} style={styles.card} testID={`persona-card-${persona.id}`}>
-      <Image source={personaAvatarSources[persona.avatar]} style={styles.avatar} />
+      <Image source={{ uri: persona.photoUrl }} style={styles.avatar} />
       <View style={styles.info}>
         <AppText variant="cardTitle" numberOfLines={1}>
           {persona.name}
         </AppText>
         <AppText variant="bodySmall" color={colors.textSecondary} numberOfLines={1}>
-          {persona.languages.join(', ')}
+          {persona.tagline}
         </AppText>
-        <View style={styles.tagRow}>
-          {persona.specialties.slice(0, 3).map((specialty) => (
-            <View key={specialty} style={styles.tag}>
-              <AppText variant="caption" color={colors.chipText}>
-                {SPECIALTY_LABELS[specialty]}
-              </AppText>
-            </View>
-          ))}
-          <View style={styles.rating}>
-            <Star size={12} color={colors.primary} fill={colors.primary} />
-            <AppText variant="caption" color={colors.primary}>
-              4.8
-            </AppText>
-          </View>
-        </View>
+        <AppText variant="caption" color={colors.textMuted} numberOfLines={1}>
+          {persona.city}
+        </AppText>
       </View>
       <View style={styles.creditBadge}>
         <AppText variant="cardTitle" color={colors.textPrimary}>
@@ -61,13 +47,5 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 64, height: 64, borderRadius: radii.md },
   info: { flex: 1, gap: 2 },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, alignItems: 'center' },
-  tag: {
-    backgroundColor: colors.chipBg,
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-  },
-  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   creditBadge: { alignItems: 'flex-end' },
 });

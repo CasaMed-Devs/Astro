@@ -1,15 +1,3 @@
-export type PersonaSpecialty =
-  'kundali' | 'tarot' | 'palmistry' | 'numerology' | 'vastu' | 'matchMaking' | 'vedic';
-
-export interface AstrologerPersonaServer {
-  id: string;
-  name: string;
-  specialties: PersonaSpecialty[];
-  languages: string[];
-  creditCostPerMessage: number;
-  systemPrompt: string;
-}
-
 export type MessageSender = 'user' | 'astrologer';
 
 export interface ChatMessageRecord {
@@ -26,6 +14,9 @@ export interface UserProfileRecord {
   dateOfBirth?: string;
   timeOfBirth?: string;
   placeOfBirth?: string;
+  latitude?: number;
+  longitude?: number;
+  timezoneOffset?: number;
   gender?: Gender;
   credits: number;
 }
@@ -46,6 +37,7 @@ export type ReportStatus = 'pending' | 'ready' | 'failed';
 export interface ReportRecord {
   status: ReportStatus;
   content?: string;
+  kundali?: unknown;
   generatedAt?: FirebaseFirestore.Timestamp;
 }
 

@@ -6,9 +6,11 @@ import {
 } from './birthDetails';
 
 const baseState: BirthDetailsFormState = {
+  fullName: 'Test User',
   dateOfBirth: new Date(2000, 0, 1),
   timeOfBirth: new Date(2000, 0, 1, 14, 30),
   placeOfBirth: 'Jaipur, Rajasthan',
+  place: { latitude: 26.9124, longitude: 75.7873, timezoneOffset: 5.5 },
   gender: 'female',
 };
 
@@ -27,6 +29,10 @@ describe('validateBirthDetails', () => {
 
   it('requires a non-empty place of birth', () => {
     expect(validateBirthDetails({ ...baseState, placeOfBirth: '   ' })).toMatch(/place of birth/i);
+  });
+
+  it('requires the place to be resolved from suggestions', () => {
+    expect(validateBirthDetails({ ...baseState, place: null })).toMatch(/birth place/i);
   });
 
   it('requires a gender selection', () => {

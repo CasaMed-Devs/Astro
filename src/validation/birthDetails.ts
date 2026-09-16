@@ -1,16 +1,26 @@
 import type { Gender } from '@/types/firestore';
 
+export interface ResolvedBirthPlace {
+  latitude: number;
+  longitude: number;
+  timezoneOffset: number;
+}
+
 export interface BirthDetailsFormState {
+  fullName: string;
   dateOfBirth: Date | null;
   timeOfBirth: Date | null;
   placeOfBirth: string;
+  place: ResolvedBirthPlace | null;
   gender: Gender | null;
 }
 
 export function validateBirthDetails(state: BirthDetailsFormState): string | null {
+  if (!state.fullName.trim()) return 'Please enter your full name.';
   if (!state.dateOfBirth) return 'Please select your date of birth.';
   if (!state.timeOfBirth) return 'Please select your time of birth.';
   if (!state.placeOfBirth.trim()) return 'Please enter your place of birth.';
+  if (!state.place) return 'Please pick your birth place from the suggestions list.';
   if (!state.gender) return 'Please select a gender.';
   return null;
 }

@@ -22,6 +22,10 @@ export async function generateAstrologerReply(
   history: ChatMessageRecord[],
   userMessage: string,
 ): Promise<string> {
+  if (!env.ai.provider) {
+    return `**AI Provider Not Configured**\n\nThe Free Astrology API successfully calculated your Kundali, but the AI to write the report (OpenAI/Anthropic) is missing.\n\nHere is your raw astrological data:\n\n${userMessage}`;
+  }
+
   switch (env.ai.provider) {
     case 'openai':
       if (!env.ai.openaiApiKey) throw new AiProviderNotConfiguredError();

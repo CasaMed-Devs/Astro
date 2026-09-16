@@ -3,9 +3,13 @@ import type { Gender, UserProfile } from '@/types/firestore';
 import { toAppError } from '@/utils/errors';
 
 export interface BirthDetailsInput {
+  name?: string;
   dateOfBirth: string;
   timeOfBirth: string;
   placeOfBirth: string;
+  latitude: number;
+  longitude: number;
+  timezoneOffset: number;
   gender: Gender;
 }
 
