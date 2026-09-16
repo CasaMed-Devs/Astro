@@ -15,7 +15,7 @@ import { AppError } from '@/utils/errors';
 const RESEND_SECONDS = 30;
 
 export default function OtpScreen() {
-  const { phoneNumber } = useOtpFlow();
+  const { phoneNumber, identificationToken, otp, setPendingVerification } = useOtpFlow();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -23,14 +23,14 @@ export default function OtpScreen() {
   const { secondsLeft, reset } = useCountdown(RESEND_SECONDS);
 
   const handleVerify = async () => {
-    if (!phoneNumber) {
+    if (!phoneNumber || !identificationToken) {
       setError('Session expired. Please request a new code.');
       return;
     }
     setError(null);
     setVerifying(true);
     try {
-      await confirmOtp(phoneNumber, code);
+      await confirmOtp(phoneNumber, code, identificationToken);
       router.replace('/(onboarding)/birth-details');
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not verify the code.');
@@ -44,7 +44,8 @@ export default function OtpScreen() {
     setResending(true);
     setError(null);
     try {
-      await sendOtp(phoneNumber);
+      const result = await sendOtp(phoneNumber);
+      setPendingVerification(phoneNumber, result.identificationToken, result.otp);
       reset();
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not resend the code.');
@@ -60,6 +61,11 @@ export default function OtpScreen() {
         <AppText variant="body" color={colors.textSecondary}>
           Enter the 6-digit code sent to {phoneNumber || 'your phone'}.
         </AppText>
+        {otp ? (
+          <AppText variant="bodySmall" color={colors.textSecondary}>
+            Your OTP: {otp}
+          </AppText>
+        ) : null}
       </View>
 
       <View style={styles.otpBlock}>

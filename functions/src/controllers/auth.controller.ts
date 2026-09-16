@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { env } from '../config/env';
-import { requestOtp, verifyOtp } from '../services/otp.service';
+import { pixyLogin, pixyVerifyOtp } from '../services/pixyAuth.service';
 import { createSessionToken } from '../services/token.service';
 
 const phoneSchema = z
@@ -18,6 +18,7 @@ const sendOtpSchema = z.object({ phoneNumber: phoneSchema });
 const verifyOtpSchema = z.object({
   phoneNumber: phoneSchema,
   code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
+  identificationToken: z.string().min(1),
 });
 
 /** Stable, non-guessable uid derived from the phone number (replaces the Firebase Auth uid). */
@@ -27,8 +28,8 @@ function uidForPhoneNumber(phoneNumber: string): string {
 
 export async function sendOtp(req: Request, res: Response): Promise<void> {
   const { phoneNumber } = sendOtpSchema.parse(req.body);
-  await requestOtp(phoneNumber);
-  res.json({ sent: true });
+  const { identificationToken, otp } = await pixyLogin(phoneNumber);
+  res.json({ sent: true, identificationToken, otp });
 }
 
 async function signInUser(phoneNumber: string): Promise<{ uid: string; token: string }> {
@@ -52,8 +53,8 @@ async function signInUser(phoneNumber: string): Promise<{ uid: string; token: st
 }
 
 export async function verifyOtpAndSignIn(req: Request, res: Response): Promise<void> {
-  const { phoneNumber, code } = verifyOtpSchema.parse(req.body);
-  await verifyOtp(phoneNumber, code);
+  const { phoneNumber, code, identificationToken } = verifyOtpSchema.parse(req.body);
+  await pixyVerifyOtp(phoneNumber, identificationToken, code);
 
   const { uid, token } = await signInUser(phoneNumber);
   res.json({ token, uid });

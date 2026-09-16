@@ -47,12 +47,6 @@ export const env = {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '30d',
   },
 
-  voicensms: {
-    apiKey: process.env.VOICENSMS_API_KEY,
-    templateId: process.env.VOICENSMS_TEMPLATE_ID,
-    senderId: process.env.VOICENSMS_SENDER_ID,
-  },
-
   razorpay: {
     keyId: process.env.RAZORPAY_KEY_ID,
     keySecret: process.env.RAZORPAY_KEY_SECRET,

@@ -45,8 +45,8 @@ export default function MobileNumberScreen() {
     setSubmitting(true);
     try {
       const phoneNumber = toE164(localNumber);
-      await sendOtp(phoneNumber);
-      setPendingVerification(phoneNumber);
+      const { identificationToken, otp } = await sendOtp(phoneNumber);
+      setPendingVerification(phoneNumber, identificationToken, otp);
       router.push('/(onboarding)/otp');
     } catch (err) {
       setError(
