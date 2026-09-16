@@ -1,4 +1,5 @@
 import { env } from './env';
+import { getPaywallPricingDoc } from '../services/paywallPricing.service';
 
 export interface ServerSubscriptionPlan {
   id: string;
@@ -8,20 +9,28 @@ export interface ServerSubscriptionPlan {
 
 /**
  * Server-side mirror of src/features/payments/config/plans.ts. Pricing is
- * read from env vars so it can be set without a redeploy of application
- * code — set SUBSCRIPTION_PRICE_AMOUNT/CURRENCY once real pricing exists.
+ * read from the admin-editable appConfig/paywallPricing doc first, falling
+ * back to env vars (SUBSCRIPTION_PRICE_AMOUNT/CURRENCY) so a fresh deploy
+ * still has working prices before any admin action.
  */
-export function getServerPlan(planId: string): ServerSubscriptionPlan | undefined {
+export async function getServerPlan(planId: string): Promise<ServerSubscriptionPlan | undefined> {
   if (planId !== 'astro101-plus-monthly') return undefined;
 
-  const amount = process.env.SUBSCRIPTION_PRICE_AMOUNT
-    ? Number(process.env.SUBSCRIPTION_PRICE_AMOUNT)
-    : undefined;
-  const currency = process.env.SUBSCRIPTION_PRICE_CURRENCY;
+  const stored = await getPaywallPricingDoc();
+  const amount =
+    stored.subscription?.amount ??
+    (process.env.SUBSCRIPTION_PRICE_AMOUNT
+      ? Number(process.env.SUBSCRIPTION_PRICE_AMOUNT)
+      : undefined);
+  const currency = stored.subscription?.currency ?? process.env.SUBSCRIPTION_PRICE_CURRENCY;
 
   return { id: planId, amount, currency };
 }
 
-export function getReportPrice(): { amount?: number; currency?: string } {
-  return { amount: env.reportPrice.amount, currency: env.reportPrice.currency };
+export async function getReportPrice(): Promise<{ amount?: number; currency?: string }> {
+  const stored = await getPaywallPricingDoc();
+  return {
+    amount: stored.report?.amount ?? env.reportPrice.amount,
+    currency: stored.report?.currency ?? env.reportPrice.currency,
+  };
 }

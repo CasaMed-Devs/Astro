@@ -27,6 +27,13 @@ import type { ChatMessageDoc } from '@/types/firestore';
 
 const PARAGRAPH_REVEAL_MS = 1200;
 
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 function parseContext(raw?: string): Record<string, string> | undefined {
   if (!raw) return undefined;
   try {
@@ -56,6 +63,15 @@ export default function ChatScreen() {
   const [draft, setDraft] = useState(initialMessage ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Session-based billing: a chat session covers 10 minutes once a message
+  // starts one. `isSubscriber` never has a time limit. `sessionUnlocked` is
+  // the client-side confirmation gate after a session expires — tapping
+  // "start a new session" sets it so the composer re-enables; the next
+  // message sent is what actually starts (and charges for) the new session.
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [sessionUnlocked, setSessionUnlocked] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const listRef = useRef<FlatList>(null);
   const extraContext = useRef(parseContext(context)).current;
   const insets = useSafeAreaInsets();
@@ -85,17 +101,34 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!chatId) return;
-    return subscribeToMessages(chatId, (fetched) => {
+    return subscribeToMessages(chatId, ({ messages: fetched, sessionStatus }) => {
       setMessages(fetched);
       if (fetched.length > 0) {
         setOldestSeq(Number(fetched[0].id));
       }
       // Drop local echoes now that the server has persisted the matching message.
       setLocalMessages((prev) =>
-        prev.filter((local) => !fetched.some((m) => m.sender === local.sender && m.text === local.text)),
+        prev.filter(
+          (local) => !fetched.some((m) => m.sender === local.sender && m.text === local.text),
+        ),
       );
+      if (sessionStatus) {
+        setIsSubscriber(sessionStatus.isSubscriber);
+        setSessionExpiresAt(sessionStatus.sessionExpiresAt);
+      }
     });
   }, [chatId]);
+
+  // Ticks the countdown while a non-subscriber session is active.
+  useEffect(() => {
+    if (isSubscriber || !sessionExpiresAt) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isSubscriber, sessionExpiresAt]);
+
+  const sessionExpiresAtMs = sessionExpiresAt ? new Date(sessionExpiresAt).getTime() : null;
+  const sessionExpired = !isSubscriber && sessionExpiresAtMs !== null && sessionExpiresAtMs <= now;
+  const locked = sessionExpired && !sessionUnlocked;
 
   const handleLoadOlder = async () => {
     if (oldestSeq == null || loadingOlder) return;
@@ -136,7 +169,7 @@ export default function ChatScreen() {
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || locked) return;
 
     const localId = `local-${Date.now()}`;
     setDraft('');
@@ -148,6 +181,9 @@ export default function ChatScreen() {
     ]);
     try {
       const result = await sendUserMessage(chatId, personaId, text, extraContext);
+      setSessionExpiresAt(result.sessionExpiresAt);
+      setSessionUnlocked(false);
+      setNow(Date.now());
       revealParagraphs(result.paragraphs.length > 0 ? result.paragraphs : [result.reply]);
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m.id !== localId));
@@ -156,6 +192,8 @@ export default function ChatScreen() {
       setSending(false);
     }
   };
+
+  const handleStartNewSession = () => setSessionUnlocked(true);
 
   return (
     <Screen padded={false} edges={['top', 'bottom']}>
@@ -204,7 +242,10 @@ export default function ChatScreen() {
                 />
               </View>
             ) : (
-              <EmptyView title="Start the conversation" message="Ask your astrologer anything on your mind." />
+              <EmptyView
+                title="Start the conversation"
+                message="Ask your astrologer anything on your mind."
+              />
             )
           }
         />
@@ -217,23 +258,41 @@ export default function ChatScreen() {
           </Pressable>
         ) : null}
 
-        <View style={styles.composer}>
-          <Input
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Type your question..."
-            containerStyle={styles.composerInput}
-            multiline
-            editable={!sending}
-          />
-          <Pressable
-            onPress={handleSend}
-            disabled={sending || !draft.trim()}
-            style={[styles.sendButton, (sending || !draft.trim()) && styles.sendButtonDisabled]}
-          >
-            <Send size={18} color={colors.onGradientText} />
-          </Pressable>
-        </View>
+        {!isSubscriber && sessionExpiresAtMs !== null && !sessionExpired ? (
+          <View style={styles.sessionBanner}>
+            <AppText variant="caption" color={colors.textMuted}>
+              Session: {formatRemaining(sessionExpiresAtMs - now)} left
+            </AppText>
+          </View>
+        ) : null}
+
+        {locked ? (
+          <View style={styles.composer}>
+            <Pressable onPress={handleStartNewSession} style={styles.newSessionButton}>
+              <AppText variant="label" color={colors.onGradientText}>
+                Session ended — Start a new session
+              </AppText>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.composer}>
+            <Input
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Type your question..."
+              containerStyle={styles.composerInput}
+              multiline
+              editable={!sending}
+            />
+            <Pressable
+              onPress={handleSend}
+              disabled={sending || !draft.trim()}
+              style={[styles.sendButton, (sending || !draft.trim()) && styles.sendButtonDisabled]}
+            >
+              <Send size={18} color={colors.onGradientText} />
+            </Pressable>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -259,6 +318,17 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     backgroundColor: '#FCEBEB',
     borderRadius: radii.sm,
+  },
+  sessionBanner: {
+    alignItems: 'center',
+    paddingBottom: spacing.xs,
+  },
+  newSessionButton: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
   },
   composer: {
     flexDirection: 'row',

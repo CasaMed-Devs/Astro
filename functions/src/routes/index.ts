@@ -15,6 +15,7 @@ import { devLogin, sendOtp, verifyOtpAndSignIn } from '../controllers/auth.contr
 import { getMe, updateBirthDetails, updateDisplayName } from '../controllers/user.controller';
 import { getMyReport, getMySubscription, generateReport } from '../controllers/status.controller';
 import { autocomplete, resolve } from '../controllers/places.controller';
+import { adminRouter } from './admin.routes';
 import { env } from '../config/env';
 
 export const router = Router();
@@ -53,3 +54,5 @@ router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrde
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));
 
 router.post('/account/delete', requireAuth, asyncHandler(deleteAccount));
+
+router.use('/admin', adminRouter);

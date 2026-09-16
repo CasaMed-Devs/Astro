@@ -3,7 +3,10 @@ import { z } from 'zod';
 
 import { getOrCreateChat, handleUserMessage, listMessages } from '../services/chat.service';
 import { listProfiles } from '../services/personaApi.service';
-import { getCreditCost } from '../config/personaPricing';
+import {
+  getAllPersonaConfigs,
+  DEFAULT_CREDIT_COST_PER_SESSION,
+} from '../services/personaConfig.service';
 import { UnauthorizedError } from '../utils/errors';
 
 const PERSONA_API_ORIGIN = 'https://personaapi.web.app';
@@ -51,10 +54,11 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
 }
 
 export async function listPersonas(_req: Request, res: Response): Promise<void> {
-  const { profiles } = await listProfiles();
+  const [{ profiles }, configs] = await Promise.all([listProfiles(), getAllPersonaConfigs()]);
 
-  res.json({
-    profiles: profiles.map((profile) => ({
+  const merged = profiles.map((profile) => {
+    const config = configs.get(profile.id);
+    return {
       id: profile.id,
       category: profile.category,
       name: profile.name,
@@ -66,7 +70,12 @@ export async function listPersonas(_req: Request, res: Response): Promise<void> 
       greeting: profile.greeting,
       openers: profile.openers,
       requiredInputs: profile.required_inputs,
-      creditCostPerMessage: getCreditCost(profile.id),
-    })),
+      creditCostPerSession: config?.creditCostPerSession ?? DEFAULT_CREDIT_COST_PER_SESSION,
+      sortOrder: config?.sortOrder ?? Number.MAX_SAFE_INTEGER,
+    };
   });
+
+  merged.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+
+  res.json({ profiles: merged });
 }

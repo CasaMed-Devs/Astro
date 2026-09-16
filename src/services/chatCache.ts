@@ -1,9 +1,10 @@
-import type { ChatMessageDoc, ChatDoc } from '@/types/firestore';
+import type { ChatMessageDoc, ChatDoc, ChatSessionStatus } from '@/types/firestore';
 
 interface CachedChat {
   messages: ChatMessageDoc[];
   meta: ChatDoc;
   timestamp: number;
+  sessionStatus?: ChatSessionStatus;
 }
 
 const CHAT_CACHE = new Map<string, CachedChat>();
@@ -31,11 +32,16 @@ export function setCachedChat(chatId: string, chat: ChatDoc, messages: ChatMessa
   });
 }
 
-export function updateCachedMessages(chatId: string, messages: ChatMessageDoc[]): void {
+export function updateCachedMessages(
+  chatId: string,
+  messages: ChatMessageDoc[],
+  sessionStatus?: ChatSessionStatus,
+): void {
   const cached = CHAT_CACHE.get(chatId);
   if (cached) {
     cached.messages = [...messages].sort((a, b) => Number(a.id) - Number(b.id));
     cached.timestamp = Date.now();
+    if (sessionStatus) cached.sessionStatus = sessionStatus;
   }
 }
 
@@ -44,7 +50,9 @@ export function prependCachedMessages(chatId: string, newMessages: ChatMessageDo
   if (cached) {
     const existingIds = new Set(cached.messages.map((m) => m.id));
     const uniqueNew = newMessages.filter((m) => !existingIds.has(m.id));
-    cached.messages = [...uniqueNew, ...cached.messages].sort((a, b) => Number(a.id) - Number(b.id));
+    cached.messages = [...uniqueNew, ...cached.messages].sort(
+      (a, b) => Number(a.id) - Number(b.id),
+    );
     cached.timestamp = Date.now();
   }
 }

@@ -34,6 +34,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /personaConfig/{profileId} {
+      allow read, write: if false;
+    }
+
     match /otps/{phoneNumber} {
       allow read, write: if false;
     }

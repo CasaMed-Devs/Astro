@@ -93,4 +93,13 @@ export const env = {
     amount: process.env.REPORT_PRICE_AMOUNT ? Number(process.env.REPORT_PRICE_AMOUNT) : undefined,
     currency: process.env.REPORT_PRICE_CURRENCY,
   },
+
+  admin: {
+    password: process.env.ADMIN_PASSWORD,
+    // Origin of the standalone admin-dashboard app (e.g.
+    // http://localhost:5174 locally, or its deployed URL) — required for
+    // the cross-origin cookie session to work at all (browsers refuse
+    // credentialed CORS against a wildcard origin).
+    dashboardOrigin: process.env.ADMIN_DASHBOARD_ORIGIN,
+  },
 };

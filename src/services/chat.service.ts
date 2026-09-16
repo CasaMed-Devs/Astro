@@ -1,5 +1,5 @@
 import { apiClient } from '@/services/apiClient';
-import type { ChatMessageDoc, ChatDoc, ChatReplyMeta } from '@/types/firestore';
+import type { ChatMessageDoc, ChatDoc, ChatReplyMeta, ChatSessionStatus } from '@/types/firestore';
 import { pollFor } from '@/utils/poll';
 import { toAppError } from '@/utils/errors';
 import {
@@ -25,6 +25,7 @@ interface ListMessagesResponse {
   messages: ChatMessageResponse[];
   hasMore: boolean;
   nextCursor: number | null;
+  sessionStatus: ChatSessionStatus;
 }
 
 interface ChatCreateResponse {
@@ -53,21 +54,26 @@ export async function getOrCreateChat(personaId: string): Promise<string> {
   }
 }
 
+export interface MessagesUpdate {
+  messages: ChatMessageDoc[];
+  sessionStatus: ChatSessionStatus | null;
+}
+
 export function subscribeToMessages(
   chatId: string,
-  callback: (messages: ChatMessageDoc[]) => void,
+  callback: (update: MessagesUpdate) => void,
 ): () => void {
   const cached = getCachedChat(chatId);
   if (cached) {
-    callback(cached.messages);
+    callback({ messages: cached.messages, sessionStatus: cached.sessionStatus ?? null });
   }
 
   return pollFor(
     async () => {
       const result = await apiClient.get<ListMessagesResponse>(`/chats/${chatId}/messages`);
       const messages = result.messages.map(toDoc);
-      updateCachedMessages(chatId, messages);
-      return messages;
+      updateCachedMessages(chatId, messages, result.sessionStatus);
+      return { messages, sessionStatus: result.sessionStatus };
     },
     callback,
     MESSAGES_POLL_INTERVAL_MS,
@@ -106,6 +112,8 @@ export interface SendMessageResult {
   paragraphs: string[];
   meta?: ChatReplyMeta;
   remainingCredits: number | null;
+  sessionExpiresAt: string | null;
+  isNewSession: boolean;
 }
 
 export async function sendUserMessage(

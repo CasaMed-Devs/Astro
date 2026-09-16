@@ -44,6 +44,12 @@ export interface ChatMessageDoc {
   meta?: ChatReplyMeta;
 }
 
+export interface ChatSessionStatus {
+  sessionActive: boolean;
+  sessionExpiresAt: string | null;
+  isSubscriber: boolean;
+}
+
 export type SubscriptionStatus = 'active' | 'pending' | 'cancelled' | 'expired' | 'failed';
 
 export interface SubscriptionDoc {

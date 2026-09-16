@@ -1,0 +1,249 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-alt: #1f232c;
+  --border: #2a2f3a;
+  --text: #e8e9ec;
+  --text-muted: #9aa1ae;
+  --accent: #b25f0a;
+  --accent-hover: #d17410;
+  --danger: #e5534b;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.topbar h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.topbar nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-right: 16px;
+  font-size: 13px;
+}
+
+.topbar nav a.active,
+.topbar nav a:hover {
+  color: var(--text);
+}
+
+.topbar button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.container {
+  max-width: 720px;
+  margin: 32px auto;
+  padding: 0 20px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 14px;
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.card p.hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: -8px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'] {
+  width: 100%;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+button.primary {
+  background: var(--accent);
+  border: none;
+  color: white;
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button.primary:hover {
+  background: var(--accent-hover);
+}
+
+button.small {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.field-row {
+  margin-bottom: 14px;
+}
+
+.field-pair {
+  display: flex;
+  gap: 10px;
+}
+.field-pair > div {
+  flex: 1;
+}
+
+.error-banner {
+  background: rgba(229, 83, 75, 0.12);
+  border: 1px solid rgba(229, 83, 75, 0.4);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.success-banner {
+  background: rgba(178, 95, 10, 0.12);
+  border: 1px solid rgba(178, 95, 10, 0.4);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.astrologer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: grab;
+}
+
+.astrologer-row:hover {
+  background: var(--panel-alt);
+}
+.astrologer-row.dragging {
+  opacity: 0.4;
+}
+.astrologer-row.drag-over {
+  border-color: var(--accent);
+}
+
+.astrologer-row img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--panel-alt);
+}
+
+.astrologer-row .info {
+  flex: 1;
+  min-width: 0;
+}
+.astrologer-row .info .name {
+  font-weight: 600;
+}
+.astrologer-row .info .meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.astrologer-row .price {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.astrologer-row .price input {
+  width: 70px;
+}
+
+.handle {
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: grab;
+  user-select: none;
+}
+
+.login-wrap {
+  max-width: 360px;
+  margin: 90px auto;
+  text-align: center;
+}
+.login-wrap h1 {
+  margin-bottom: 24px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.detail-row:last-child {
+  border-bottom: none;
+}
+.detail-row .label {
+  color: var(--text-muted);
+}
+
+.centered-loading {
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 80px;
+}

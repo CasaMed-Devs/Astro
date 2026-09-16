@@ -1,5 +1,3 @@
-import { createHash } from 'crypto';
-
 import type { Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -8,6 +6,7 @@ import { adminFirestore } from '../config/firebase-admin';
 import { env } from '../config/env';
 import { requestOtp, verifyOtp } from '../services/otp.service';
 import { createSessionToken } from '../services/token.service';
+import { uidForPhoneNumber } from '../utils/uid';
 
 const phoneSchema = z
   .string()
@@ -19,11 +18,6 @@ const verifyOtpSchema = z.object({
   phoneNumber: phoneSchema,
   code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
 });
-
-/** Stable, non-guessable uid derived from the phone number (replaces the Firebase Auth uid). */
-function uidForPhoneNumber(phoneNumber: string): string {
-  return createHash('sha256').update(phoneNumber).digest('hex').slice(0, 32);
-}
 
 export async function sendOtp(req: Request, res: Response): Promise<void> {
   const { phoneNumber } = sendOtpSchema.parse(req.body);

@@ -1,11 +1,16 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getCreditCost } from '../config/personaPricing';
+import { getCreditCostPerSession } from './personaConfig.service';
 import { listConversationMessages, sendChatMessage } from './personaApi.service';
 import type { PersonaChatMeta } from './personaApi.service';
-import { assertAndConsumeEntitlement, getRemainingCredits } from './credits.service';
-import { NotFoundError, PersonaConversationNotFoundError, UnauthorizedError } from '../utils/errors';
+import { assertActiveOrStartSession, getSessionStatus } from './credits.service';
+import type { SessionStatus } from './credits.service';
+import {
+  NotFoundError,
+  PersonaConversationNotFoundError,
+  UnauthorizedError,
+} from '../utils/errors';
 import type { UserProfileRecord } from '../types';
 
 interface PersonaChatRecord {
@@ -43,7 +48,7 @@ export async function getOrCreateChat(uid: string, profileId: string): Promise<C
     return { id: sessionId, userId: uid, personaId: profileId, createdAt: now, updatedAt: now };
   }
 
-  const data = snapshot.data();
+  const data = snapshot.data()!;
   return {
     id: sessionId,
     userId: data.userId,
@@ -91,6 +96,8 @@ export interface HandleUserMessageResult {
   paragraphs: string[];
   meta?: PersonaChatMeta;
   remainingCredits: number | null;
+  sessionExpiresAt: string | null;
+  isNewSession: boolean;
 }
 
 export async function handleUserMessage(
@@ -102,7 +109,8 @@ export async function handleUserMessage(
 ): Promise<HandleUserMessageResult> {
   await requireOwnedChat(uid, chatId);
 
-  await assertAndConsumeEntitlement(uid, getCreditCost(profileId));
+  const creditCostPerSession = await getCreditCostPerSession(profileId);
+  const session = await assertActiveOrStartSession(uid, chatId, creditCostPerSession);
 
   const mergedContext = await buildContextForUser(uid, context);
   const result = await sendChatMessage({
@@ -113,13 +121,13 @@ export async function handleUserMessage(
     context: mergedContext,
   });
 
-  const remainingCredits = await getRemainingCredits(uid);
-
   return {
     reply: result.reply.text,
     paragraphs: result.reply.paragraphs,
     meta: result.meta,
-    remainingCredits,
+    remainingCredits: session.remainingCredits,
+    sessionExpiresAt: session.sessionExpiresAt,
+    isNewSession: session.isNewSession,
   };
 }
 
@@ -134,6 +142,7 @@ export interface ListMessagesResult {
   messages: ChatMessageResponse[];
   hasMore: boolean;
   nextCursor: number | null;
+  sessionStatus: SessionStatus;
 }
 
 export async function listMessages(
@@ -142,6 +151,8 @@ export async function listMessages(
   opts: { limit?: number; before?: number },
 ): Promise<ListMessagesResult> {
   await requireOwnedChat(uid, chatId);
+
+  const sessionStatus = await getSessionStatus(uid, chatId);
 
   try {
     const page = await listConversationMessages(chatId, opts);
@@ -154,12 +165,13 @@ export async function listMessages(
       })),
       hasMore: page.has_more,
       nextCursor: page.next_cursor,
+      sessionStatus,
     };
   } catch (error) {
     // A brand-new chat has no vendor-side conversation until the first
     // message is sent — that's an empty history, not an error.
     if (error instanceof PersonaConversationNotFoundError) {
-      return { messages: [], hasMore: false, nextCursor: null };
+      return { messages: [], hasMore: false, nextCursor: null, sessionStatus };
     }
     throw error;
   }

@@ -24,7 +24,7 @@ export async function createSubscriptionOrder(req: Request, res: Response): Prom
   if (!req.uid) throw new UnauthorizedError();
 
   const { planId } = z.object({ planId: z.string().min(1) }).parse(req.body);
-  const plan = getServerPlan(planId);
+  const plan = await getServerPlan(planId);
   if (!plan?.amount || !plan.currency) throw new PricingNotConfiguredError();
 
   const order = await createOrder(plan.amount, plan.currency, `sub_${req.uid}_${Date.now()}`, {
@@ -75,7 +75,7 @@ export async function verifySubscriptionPayment(req: Request, res: Response): Pr
 export async function createReportOrder(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const { amount, currency } = getReportPrice();
+  const { amount, currency } = await getReportPrice();
   if (!amount || !currency) throw new PricingNotConfiguredError();
 
   const order = await createOrder(amount, currency, `report_${req.uid}_${Date.now()}`, {
