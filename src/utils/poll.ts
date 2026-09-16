@@ -10,11 +10,17 @@ export function pollFor<T>(
   intervalMs: number,
 ): () => void {
   let cancelled = false;
+  // Ticks can overlap on a slow connection (a new one fires before the last
+  // resolves). Without this, a stale response that resolves after a newer
+  // one can overwrite the callback with older/shorter data. Only the
+  // latest-issued tick is allowed to call back.
+  let latestTick = 0;
 
   const tick = async () => {
+    const thisTick = ++latestTick;
     try {
       const value = await fetchFn();
-      if (!cancelled) callback(value);
+      if (!cancelled && thisTick === latestTick) callback(value);
     } catch {
       // Transient network errors are ignored; the next tick will retry.
     }

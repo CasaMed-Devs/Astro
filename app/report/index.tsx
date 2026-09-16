@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft, MapPin, Calendar, Clock, RefreshCw } from 'lucide-react-native';
@@ -15,12 +15,129 @@ import { colors, radii, spacing, shadows } from '@/constants/theme';
 import type { ReportDoc, ReportDasha } from '@/types/firestore';
 
 const SIGN_NAMES = [
-  'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
-  'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces',
+  'Aries',
+  'Taurus',
+  'Gemini',
+  'Cancer',
+  'Leo',
+  'Virgo',
+  'Libra',
+  'Scorpio',
+  'Sagittarius',
+  'Capricorn',
+  'Aquarius',
+  'Pisces',
 ];
 
+const SANSKRIT_SIGNS = [
+  'Mesha',
+  'Vrishabha',
+  'Mithuna',
+  'Karka',
+  'Simha',
+  'Kanya',
+  'Tula',
+  'Vrischika',
+  'Dhanu',
+  'Makara',
+  'Kumbha',
+  'Meena',
+];
+
+const NAKSHATRA_NAMES = [
+  'Ashwini',
+  'Bharani',
+  'Krittika',
+  'Rohini',
+  'Mrigashira',
+  'Ardra',
+  'Punarvasu',
+  'Pushya',
+  'Ashlesha',
+  'Magha',
+  'Purva Phalguni',
+  'Uttara Phalguni',
+  'Hasta',
+  'Chitra',
+  'Swati',
+  'Vishakha',
+  'Anuradha',
+  'Jyeshtha',
+  'Mula',
+  'Purva Ashadha',
+  'Uttara Ashadha',
+  'Shravana',
+  'Dhanishta',
+  'Shatabhisha',
+  'Purva Bhadrapada',
+  'Uttara Bhadrapada',
+  'Revati',
+];
+
+const PLANET_ABBR: Record<string, string> = {
+  Sun: 'Su',
+  Moon: 'Mo',
+  Mars: 'Ma',
+  Mercury: 'Me',
+  Jupiter: 'Ju',
+  Venus: 'Ve',
+  Saturn: 'Sa',
+  Rahu: 'Ra',
+  Ketu: 'Ke',
+};
+
+const SIGN_RULERS: Record<string, string> = {
+  Aries: 'Mars',
+  Taurus: 'Venus',
+  Gemini: 'Mercury',
+  Cancer: 'Moon',
+  Leo: 'Sun',
+  Virgo: 'Mercury',
+  Libra: 'Venus',
+  Scorpio: 'Mars',
+  Sagittarius: 'Jupiter',
+  Capricorn: 'Saturn',
+  Aquarius: 'Saturn',
+  Pisces: 'Jupiter',
+};
+
+const CAREER_TRAITS: Record<string, string> = {
+  Aries: 'suited to leadership roles and fast-paced work.',
+  Taurus: 'rewards steady, patient effort over time.',
+  Gemini: 'favors variety, communication and adaptable roles.',
+  Cancer: 'thrives in nurturing, people-focused work.',
+  Leo: 'calls for visibility, creativity and recognition.',
+  Virgo: 'rewards precision, service and attention to detail.',
+  Libra: 'favors partnership-driven or diplomatic work.',
+  Scorpio: 'demands depth, research and transformation.',
+  Sagittarius: 'suited to teaching, travel or big-picture roles.',
+  Capricorn: 'built for steady, disciplined long-term growth.',
+  Aquarius: 'favors innovation and unconventional paths.',
+  Pisces: 'suited to creative, healing or spiritual work.',
+};
+
+const RELATIONSHIP_TRAITS: Record<string, string> = {
+  Aries: 'partnerships are direct and full of energy.',
+  Taurus: 'bonds built on stability and loyalty.',
+  Gemini: 'connection thrives on conversation and variety.',
+  Cancer: 'closeness built through emotional security.',
+  Leo: 'relationships flourish with warmth and admiration.',
+  Virgo: 'care shown through practical support.',
+  Libra: 'balance and fairness matter most in bonds.',
+  Scorpio: 'bonds deepen through trust and intensity.',
+  Sagittarius: 'freedom and shared adventure matter.',
+  Capricorn: 'partnerships mature slowly, built to last.',
+  Aquarius: 'connection thrives on friendship and space.',
+  Pisces: 'bonds are gentle, intuitive and compassionate.',
+};
+
+function findCurrentDasha(dashas: ReportDasha[]): ReportDasha | null {
+  const now = new Date();
+  return dashas.find((d) => now >= new Date(d.startTime) && now <= new Date(d.endTime)) ?? null;
+}
+
 export default function ReportScreen() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const [report, setReport] = useState<ReportDoc | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,7 +218,9 @@ export default function ReportScreen() {
     return (
       <Screen>
         <HeaderRow />
-        <AppText variant="displayMd" style={styles.title}>Your Janma Kundali</AppText>
+        <AppText variant="displayMd" style={styles.title}>
+          Your Janma Kundali
+        </AppText>
         <AppText variant="body" color={colors.textSecondary} style={styles.subtitle}>
           Your chart data needs to be refreshed to display the full Vedic chart.
         </AppText>
@@ -110,12 +229,72 @@ export default function ReportScreen() {
     );
   }
 
+  const moon = kundali.planets.find((p) => p.name === 'Moon');
+  const sun = kundali.planets.find((p) => p.name === 'Sun');
+  const lagnaSanskritName = ascendant
+    ? (SANSKRIT_SIGNS[(ascendant.currentSign - 1) % 12] ?? '—')
+    : '—';
+  const moonSignName = moon ? (SIGN_NAMES[(moon.currentSign - 1) % 12] ?? '—') : '—';
+  const moonSanskritName = moon ? (SANSKRIT_SIGNS[(moon.currentSign - 1) % 12] ?? '—') : '—';
+  const sunSignName = sun ? (SIGN_NAMES[(sun.currentSign - 1) % 12] ?? '—') : '—';
+  const sunSanskritName = sun ? (SANSKRIT_SIGNS[(sun.currentSign - 1) % 12] ?? '—') : '—';
+  const nakshatra = moon
+    ? (NAKSHATRA_NAMES[Math.floor(moon.fullDegree / (360 / 27)) % 27] ?? '—')
+    : '—';
+  const birthPlace = profile?.placeOfBirth ?? kundali.geo.completeName;
+  const currentDasha = findCurrentDasha(kundali.mahaDasas);
+
+  const lagnaSignIndex = ascendant ? ascendant.currentSign : null;
+  const houses = lagnaSignIndex
+    ? Array.from({ length: 12 }, (_, i) => {
+        const houseNumber = i + 1;
+        const signIndex = ((lagnaSignIndex - 1 + i) % 12) + 1;
+        const planetsInHouse = kundali.planets
+          .filter((p) => p.name !== 'Ascendant' && p.houseNumber === houseNumber)
+          .map((p) => PLANET_ABBR[p.name] ?? p.name.slice(0, 2));
+        return {
+          houseNumber,
+          signName: SANSKRIT_SIGNS[signIndex - 1],
+          planets: planetsInHouse,
+        };
+      })
+    : [];
+
+  const highlights: string[] = [];
+  if (lagnaSignIndex) {
+    const lagnaLordName = SIGN_RULERS[SIGN_NAMES[(lagnaSignIndex - 1) % 12]];
+    const lagnaLord = kundali.planets.find((p) => p.name === lagnaLordName);
+    if (lagnaLord?.houseNumber) {
+      highlights.push(
+        `Ascendant lord (${lagnaLordName}) placed in house ${lagnaLord.houseNumber}, shaping how you are seen by others.`,
+      );
+    }
+
+    const tenthSignIndex = ((lagnaSignIndex - 1 + 9) % 12) + 1;
+    const tenthSignEnglish = SIGN_NAMES[tenthSignIndex - 1];
+    highlights.push(
+      `Career house (10th) in ${SANSKRIT_SIGNS[tenthSignIndex - 1]} (${tenthSignEnglish}) — ${CAREER_TRAITS[tenthSignEnglish]}`,
+    );
+
+    const seventhSignIndex = ((lagnaSignIndex - 1 + 6) % 12) + 1;
+    const seventhSignEnglish = SIGN_NAMES[seventhSignIndex - 1];
+    highlights.push(
+      `Relationship house (7th) in ${SANSKRIT_SIGNS[seventhSignIndex - 1]} (${seventhSignEnglish}) — ${RELATIONSHIP_TRAITS[seventhSignEnglish]}`,
+    );
+  }
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
       <HeaderRow />
 
       {/* Title */}
-      <AppText variant="displayMd" style={styles.title}>Your Janma Kundali</AppText>
+      <AppText variant="displayMd" style={styles.title}>
+        Your Janma Kundali
+      </AppText>
       {kundali ? (
         <AppText variant="bodySmall" color={colors.textSecondary} style={styles.subtitle}>
           {kundali.geo.completeName}
@@ -126,96 +305,108 @@ export default function ReportScreen() {
       {kundali ? (
         <View style={styles.chartCard}>
           <View style={styles.chartHeader}>
-            <AppText variant="label" color={colors.primary}>Lagna: {lagnaSignName}</AppText>
-            <AppText variant="bodySmall" color={colors.textMuted}>North Indian Chart</AppText>
+            <AppText variant="label" color={colors.primary}>
+              Lagna: {lagnaSignName}
+            </AppText>
+            <AppText variant="bodySmall" color={colors.textMuted}>
+              North Indian Chart
+            </AppText>
           </View>
           <NorthIndianChart kundali={kundali} size={300} />
         </View>
       ) : null}
 
-      {/* Planetary Positions */}
-      {kundali?.planets && kundali.planets.length > 0 ? (
-        <View style={styles.section}>
-          <AppText variant="cardTitle" style={styles.sectionTitle}>Planetary Positions</AppText>
-          <View style={styles.table}>
-            <View style={[styles.tableRow, styles.tableHeader]}>
-              <AppText variant="bodySmall" color={colors.textMuted} style={styles.col1}>Planet</AppText>
-              <AppText variant="bodySmall" color={colors.textMuted} style={styles.col2}>Sign</AppText>
-              <AppText variant="bodySmall" color={colors.textMuted} style={styles.col3}>Degree</AppText>
-              <AppText variant="bodySmall" color={colors.textMuted} style={styles.col4}>House</AppText>
-            </View>
-            {kundali.planets
-              .filter((p) => p.name !== 'Ascendant')
-              .map((planet) => (
-                <View key={planet.name} style={styles.tableRow}>
-                  <AppText variant="body" style={[styles.col1, planet.isRetrograde && styles.retrograde]}>
-                    {planet.name}{planet.isRetrograde ? ' ℞' : ''}
-                  </AppText>
-                  <AppText variant="body" color={colors.textSecondary} style={styles.col2}>
-                    {SIGN_NAMES[(planet.currentSign - 1) % 12] ?? '—'}
-                  </AppText>
-                  <AppText variant="body" color={colors.textSecondary} style={styles.col3}>
-                    {planet.normDegree.toFixed(1)}°
-                  </AppText>
-                  <AppText variant="body" color={colors.textSecondary} style={styles.col4}>
-                    {planet.houseNumber ?? '—'}
-                  </AppText>
-                </View>
-              ))}
-          </View>
-        </View>
-      ) : null}
+      {/* Chart Basics */}
+      <InfoCard label="Chart Basics">
+        <InfoRow label="Lagna" value={`${lagnaSanskritName} (${lagnaSignName})`} />
+        <InfoRow label="Moon sign" value={`${moonSanskritName} (${moonSignName})`} />
+        <InfoRow label="Sun sign" value={`${sunSanskritName} (${sunSignName})`} />
+        <InfoRow label="Nakshatra" value={nakshatra} />
+        <InfoRow
+          label="Born"
+          value={
+            profile?.dateOfBirth && profile?.timeOfBirth
+              ? `${profile.dateOfBirth} · ${profile.timeOfBirth}`
+              : '—'
+          }
+        />
+        <InfoRow label="Place" value={birthPlace} />
+      </InfoCard>
 
-      {/* Dasha Periods */}
-      {kundali?.mahaDasas && kundali.mahaDasas.length > 0 ? (
-        <View style={styles.section}>
-          <AppText variant="cardTitle" style={styles.sectionTitle}>Vimsottari Maha Dasha</AppText>
-          <View style={styles.dashaList}>
-            {kundali.mahaDasas.map((dasha, i) => (
-              <DashaRow key={i} dasha={dasha} index={i} />
+      {/* Current Dasha */}
+      <InfoCard label="Current Dasha">
+        <AppText variant="body" color={colors.textPrimary}>
+          {currentDasha ? `${currentDasha.lord} mahadasha` : 'Not available'}
+        </AppText>
+      </InfoCard>
+
+      {/* House Placements */}
+      {houses.length > 0 ? (
+        <InfoCard label="House Placements">
+          <View style={styles.houseGrid}>
+            {houses.map((house) => (
+              <View key={house.houseNumber} style={styles.houseCell}>
+                <AppText variant="caption" color={colors.textMuted}>
+                  H{house.houseNumber}
+                </AppText>
+                <AppText variant="bodySmall" color={colors.textPrimary} style={styles.houseSign}>
+                  {house.signName}
+                </AppText>
+                <AppText variant="caption" color={colors.primary}>
+                  {house.planets.length > 0 ? house.planets.join(' ') : '—'}
+                </AppText>
+              </View>
             ))}
           </View>
-        </View>
+        </InfoCard>
       ) : null}
 
-      {/* AI Report text if available */}
-      {report.content && !report.content.startsWith('**AI Provider') ? (
-        <View style={styles.section}>
-          <AppText variant="cardTitle" style={styles.sectionTitle}>Your Personal Reading</AppText>
-          <AppText variant="body" color={colors.textSecondary} style={styles.reportText}>
-            {report.content}
-          </AppText>
-        </View>
+      {/* Highlights */}
+      {highlights.length > 0 ? (
+        <InfoCard label="Highlights">
+          {highlights.map((text, i) => (
+            <View key={i} style={styles.highlightRow}>
+              <AppText variant="body" color={colors.primary}>
+                •
+              </AppText>
+              <AppText variant="body" color={colors.textSecondary} style={styles.highlightText}>
+                {text}
+              </AppText>
+            </View>
+          ))}
+        </InfoCard>
       ) : null}
 
       <View style={styles.footer}>
         <Pressable onPress={() => router.push('/(tabs)/astrologers')} style={styles.astroBtn}>
-          <AppText variant="label" color={colors.primary}>Chat with an Astrologer →</AppText>
+          <AppText variant="label" color={colors.primary}>
+            Chat with an Astrologer →
+          </AppText>
         </Pressable>
       </View>
     </ScrollView>
   );
 }
 
-function DashaRow({ dasha, index }: { dasha: ReportDasha; index: number }) {
-  const now = new Date();
-  const start = new Date(dasha.startTime);
-  const end = new Date(dasha.endTime);
-  const isCurrent = now >= start && now <= end;
+function InfoCard({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <View style={[styles.dashaRow, isCurrent && styles.dashaRowCurrent]}>
-      <View style={styles.dashaLeft}>
-        <AppText variant="label" color={isCurrent ? colors.primary : colors.textPrimary}>
-          {dasha.lord}
-        </AppText>
-        {isCurrent ? (
-          <View style={styles.currentBadge}>
-            <AppText variant="caption" color={colors.primary}>Current</AppText>
-          </View>
-        ) : null}
-      </View>
-      <AppText variant="bodySmall" color={colors.textMuted}>
-        {dasha.startTime.slice(0, 4)} – {dasha.endTime.slice(0, 4)}
+    <View style={styles.infoCard}>
+      <AppText variant="label" color={colors.primary} style={styles.infoCardLabel}>
+        {label.toUpperCase()}
+      </AppText>
+      {children}
+    </View>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoRow}>
+      <AppText variant="body" color={colors.textMuted}>
+        {label}
+      </AppText>
+      <AppText variant="body" color={colors.textPrimary}>
+        {value}
       </AppText>
     </View>
   );
@@ -225,7 +416,9 @@ function HeaderRow() {
   return (
     <Pressable onPress={() => router.back()} style={styles.backRow}>
       <ArrowLeft size={18} color={colors.textSecondary} />
-      <AppText variant="body" color={colors.textSecondary}>Back</AppText>
+      <AppText variant="body" color={colors.textSecondary}>
+        Back
+      </AppText>
     </Pressable>
   );
 }
@@ -233,7 +426,13 @@ function HeaderRow() {
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.backgroundFrom },
   scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxl * 2 },
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.md, marginBottom: spacing.sm },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
   title: { marginTop: spacing.sm },
   subtitle: { marginTop: spacing.xs, marginBottom: spacing.lg },
   chartCard: {
@@ -252,49 +451,44 @@ const styles = StyleSheet.create({
   },
   section: { marginBottom: spacing.xl },
   sectionTitle: { marginBottom: spacing.sm },
-  table: {
+  infoCard: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    overflow: 'hidden',
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
     ...shadows.card,
   },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+  infoCardLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.md,
   },
-  tableHeader: { backgroundColor: colors.surfaceMuted },
-  col1: { flex: 3 },
-  col2: { flex: 3 },
-  col3: { flex: 2 },
-  col4: { flex: 1, textAlign: 'center' },
-  retrograde: { color: colors.primaryDark },
-  dashaList: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    overflow: 'hidden',
-    ...shadows.card,
-  },
-  dashaRow: {
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  houseGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  houseCell: {
+    width: '31%',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    alignItems: 'center',
+    gap: 2,
   },
-  dashaRowCurrent: { backgroundColor: colors.surfaceAlt },
-  dashaLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  currentBadge: {
-    backgroundColor: 'rgba(178,95,10,0.12)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radii.pill,
+  houseSign: { fontWeight: '600' },
+  highlightRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  reportText: { lineHeight: 22 },
+  highlightText: { flex: 1, lineHeight: 20 },
   footer: { alignItems: 'center', marginTop: spacing.md },
   astroBtn: {
     padding: spacing.md,
