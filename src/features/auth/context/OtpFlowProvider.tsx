@@ -2,7 +2,9 @@ import { createContext, PropsWithChildren, useContext, useMemo, useState } from 
 
 interface OtpFlowContextValue {
   phoneNumber: string;
-  setPendingVerification: (phoneNumber: string) => void;
+  identificationToken: string;
+  otp: string;
+  setPendingVerification: (phoneNumber: string, identificationToken: string, otp: string) => void;
   clear: () => void;
 }
 
@@ -10,14 +12,26 @@ const OtpFlowContext = createContext<OtpFlowContextValue | undefined>(undefined)
 
 export function OtpFlowProvider({ children }: PropsWithChildren) {
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [identificationToken, setIdentificationToken] = useState('');
+  const [otp, setOtp] = useState('');
 
   const value = useMemo<OtpFlowContextValue>(
     () => ({
       phoneNumber,
-      setPendingVerification: (nextPhoneNumber) => setPhoneNumber(nextPhoneNumber),
-      clear: () => setPhoneNumber(''),
+      identificationToken,
+      otp,
+      setPendingVerification: (nextPhoneNumber, nextIdentificationToken, nextOtp) => {
+        setPhoneNumber(nextPhoneNumber);
+        setIdentificationToken(nextIdentificationToken);
+        setOtp(nextOtp);
+      },
+      clear: () => {
+        setPhoneNumber('');
+        setIdentificationToken('');
+        setOtp('');
+      },
     }),
-    [phoneNumber],
+    [phoneNumber, identificationToken, otp],
   );
 
   return <OtpFlowContext.Provider value={value}>{children}</OtpFlowContext.Provider>;

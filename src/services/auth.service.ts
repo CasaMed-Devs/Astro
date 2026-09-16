@@ -5,21 +5,37 @@ import { toAppError } from '@/utils/errors';
 
 export type { Session };
 
-/** Asks the backend to send a 6-digit OTP via voicenSMS. `phoneNumber` must be E.164. */
-export async function sendOtp(phoneNumber: string): Promise<void> {
+export interface SendOtpResult {
+  identificationToken: string;
+  /** The OTP the backend just sent, echoed back so it can be shown on the OTP screen. */
+  otp: string;
+}
+
+/** Asks the backend to send a 6-digit OTP via the pixy auth service. `phoneNumber` must be E.164. */
+export async function sendOtp(phoneNumber: string): Promise<SendOtpResult> {
   try {
-    await apiClient.post<{ sent: true }>('/auth/send-otp', { phoneNumber });
+    const { identificationToken, otp } = await apiClient.post<{
+      sent: true;
+      identificationToken: string;
+      otp: string;
+    }>('/auth/send-otp', { phoneNumber });
+    return { identificationToken, otp };
   } catch (error) {
     throw toAppError(error);
   }
 }
 
 /** Verifies the OTP against the backend and, on success, starts a session. */
-export async function confirmOtp(phoneNumber: string, code: string): Promise<Session> {
+export async function confirmOtp(
+  phoneNumber: string,
+  code: string,
+  identificationToken: string,
+): Promise<Session> {
   try {
     const { token, uid } = await apiClient.post<{ token: string; uid: string }>('/auth/verify-otp', {
       phoneNumber,
       code,
+      identificationToken,
     });
     const session: Session = { token, uid, phoneNumber };
     await setSession(session);

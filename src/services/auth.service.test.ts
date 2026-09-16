@@ -21,14 +21,19 @@ jest.mock('@/services/session', () => ({
 }));
 
 describe('sendOtp', () => {
-  it('asks the backend to send an OTP', async () => {
-    mockApiClientPost.mockResolvedValueOnce({ sent: true });
+  it('asks the backend to send an OTP and returns the identification token and OTP', async () => {
+    mockApiClientPost.mockResolvedValueOnce({
+      sent: true,
+      identificationToken: 'ident-1',
+      otp: '522643',
+    });
 
-    await sendOtp('+919876543210');
+    const result = await sendOtp('+919876543210');
 
     expect(mockApiClientPost).toHaveBeenCalledWith('/auth/send-otp', {
       phoneNumber: '+919876543210',
     });
+    expect(result).toEqual({ identificationToken: 'ident-1', otp: '522643' });
   });
 
   it('wraps a backend error into an AppError', async () => {
@@ -42,11 +47,12 @@ describe('confirmOtp', () => {
   it('verifies the code and starts a session on success', async () => {
     mockApiClientPost.mockResolvedValueOnce({ token: 'jwt-1', uid: 'uid-1' });
 
-    const result = await confirmOtp('+919876543210', '123456');
+    const result = await confirmOtp('+919876543210', '123456', 'ident-1');
 
     expect(mockApiClientPost).toHaveBeenCalledWith('/auth/verify-otp', {
       phoneNumber: '+919876543210',
       code: '123456',
+      identificationToken: 'ident-1',
     });
     expect(mockSetSession).toHaveBeenCalledWith({
       token: 'jwt-1',
@@ -59,7 +65,7 @@ describe('confirmOtp', () => {
   it('wraps an invalid-code error into an AppError and does not start a session', async () => {
     mockApiClientPost.mockRejectedValueOnce(new AppError('api/unknown', 'incorrect code'));
 
-    await expect(confirmOtp('+919876543210', '000000')).rejects.toBeInstanceOf(AppError);
+    await expect(confirmOtp('+919876543210', '000000', 'ident-1')).rejects.toBeInstanceOf(AppError);
     expect(mockSetSession).not.toHaveBeenCalled();
   });
 });
