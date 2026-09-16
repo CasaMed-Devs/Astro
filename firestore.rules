@@ -10,7 +10,9 @@ service cloud.firestore {
     // collection below is backend-only (Admin SDK bypasses these rules).
     // Only clearly public, read-only reference content is exposed to clients.
 
-    match /users/{uid} {
+    // Doc ID is the user's own E.164 phone number (e.g. "+919876543210"),
+    // not a generated/hashed id — see functions/src/utils/uid.ts.
+    match /users/{phoneNumber} {
       allow read, write: if false;
     }
 
@@ -22,7 +24,7 @@ service cloud.firestore {
       }
     }
 
-    match /subscriptions/{uid} {
+    match /subscriptions/{phoneNumber} {
       allow read, write: if false;
     }
 
@@ -30,7 +32,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /reports/{uid} {
+    match /reports/{phoneNumber} {
+      allow read, write: if false;
+    }
+
+    // Thin chat-ownership doc, id = "{phoneNumber}_{personaProfileId}".
+    match /personaChats/{sessionId} {
       allow read, write: if false;
     }
 

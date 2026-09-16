@@ -26,10 +26,10 @@ export function PersonaCard({ persona, onPress }: PersonaCardProps) {
       </View>
       <View style={styles.creditBadge}>
         <AppText variant="cardTitle" color={colors.textPrimary}>
-          {persona.creditCostPerMessage}
+          {persona.creditCostPerSession}
         </AppText>
         <AppText variant="caption" color={colors.textSecondary}>
-          credit{persona.creditCostPerMessage > 1 ? 's' : ''}/msg
+          credit{persona.creditCostPerSession > 1 ? 's' : ''}/session
         </AppText>
       </View>
     </Pressable>

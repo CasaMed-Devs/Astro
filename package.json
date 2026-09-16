@@ -17,7 +17,9 @@
     "backend": "npm run build --prefix functions && node functions/lib/server.js",
     "backend:dev": "npm run dev --prefix functions",
     "backend:build": "npm run build --prefix functions",
-    "backend:test": "npm test --prefix functions"
+    "backend:test": "npm test --prefix functions",
+    "admin:build": "npm run build --prefix admin-dashboard",
+    "admin:deploy": "npm run admin:build && firebase deploy --only hosting:admin"
   },
   "jest": {
     "preset": "jest-expo",

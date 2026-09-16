@@ -10,11 +10,11 @@ Database: **Cloud Firestore** (NoSQL, document/collection model). All access goe
 
 | Collection | Doc ID | Written by | Read by client? | Purpose |
 |---|---|---|---|---|
-| `users` | `sha256(phoneNumber).slice(0,32)` | backend only | ❌ (via REST API instead) | One profile per person |
-| `personaChats` | `${uid}_${profileId}` | backend only | ❌ | Thin ownership record for a chat session — **not** the message store |
-| `subscriptions` | `{uid}` | backend only | ❌ | Astro101 Plus subscription state |
+| `users` | the user's own phone number (E.164, e.g. `+919876543210`) | backend only | ❌ (via REST API instead) | One profile per person |
+| `personaChats` | `${phoneNumber}_${profileId}` | backend only | ❌ | Thin ownership record for a chat session — **not** the message store |
+| `subscriptions` | `{phoneNumber}` | backend only | ❌ | Astro101 Plus subscription state |
 | `payments` | auto-ID | backend only | ❌ | Payment attempt log (Razorpay) |
-| `reports` | `{uid}` | backend only | ❌ | Kundali chart + AI-generated report |
+| `reports` | `{phoneNumber}` | backend only | ❌ | Kundali chart + AI-generated report |
 | `otps` | `{phoneNumber}` | backend only | ❌ | Short-lived OTP verification state |
 | `horoscopes/{sign}/daily` | `{date}` (`YYYY-MM-DD`) | backend only | ✅ public read | Cached daily horoscope per zodiac sign |
 | `appConfig` | — | *nobody* | ✅ public read | Declared in rules, unused by any current code (dead) |
@@ -27,12 +27,12 @@ Chat **messages themselves are not stored in Firestore at all** — they live in
 
 ## 2. Collection Details
 
-### `users/{uid}`
+### `users/{phoneNumber}`
 Source: `functions/src/types/index.ts` (`UserProfileRecord`), written in `auth.controller.ts`, `user.controller.ts`, `credits.service.ts`.
 
 | Field | Type | Notes |
 |---|---|---|
-| `uid` | string | Same as doc ID; deterministic hash of phone number (no Firebase Auth) |
+| `uid` | string | Same as the doc ID and the same value as `phoneNumber` below — there's no Firebase Auth, so "uid" here just *is* the user's phone number (`functions/src/utils/uid.ts`); kept as its own field for API-response shape compatibility |
 | `phoneNumber` | string | E.164 format, set at sign-in |
 | `name` | string? | Set via `PUT /users/me/name` |
 | `dateOfBirth` | string? | Set via birth-details form |
@@ -47,7 +47,7 @@ Source: `functions/src/types/index.ts` (`UserProfileRecord`), written in `auth.c
 | `createdAt` / `updatedAt` | Timestamp | Server-set |
 
 ### `personaChats/{sessionId}`
-Source: `functions/src/services/chat.service.ts`. `sessionId = ${uid}_${profileId}`, so re-opening the same astrologer always resumes the same session — no duplicate chat docs per persona.
+Source: `functions/src/services/chat.service.ts`. `sessionId = ${phoneNumber}_${profileId}`, so re-opening the same astrologer always resumes the same session — no duplicate chat docs per persona.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -57,7 +57,7 @@ Source: `functions/src/services/chat.service.ts`. `sessionId = ${uid}_${profileI
 
 The `ChatMeta` TypeScript interface also declares `updatedAt` and `lastMessage`, but **no code path currently writes either field** — they'll always come back `undefined`/fallback in the API response. Actual message history (who said what, when) is fetched live from the Persona API vendor per request, not persisted here.
 
-### `subscriptions/{uid}`
+### `subscriptions/{phoneNumber}`
 Source: `functions/src/types/index.ts` (`SubscriptionRecord`), written in `payment.controller.ts`, `webhook.controller.ts`, read in `credits.service.ts`, `status.controller.ts`, expired by `scheduled/subscriptionExpiry.ts`.
 
 | Field | Type | Notes |
@@ -84,7 +84,7 @@ Source: `functions/src/controllers/payment.controller.ts`. Append-only log, one 
 | `status` | string | Always written as `'paid'` at creation time (only reached after signature verification succeeds) |
 | `createdAt` | Timestamp | |
 
-### `reports/{uid}`
+### `reports/{phoneNumber}`
 Source: `functions/src/types/index.ts` (`ReportRecord`), written/read in `report.service.ts`, `status.controller.ts`.
 
 | Field | Type | Notes |
@@ -131,37 +131,39 @@ Declared in `firestore.rules` with public read access, but **no code anywhere re
 ## 3. IDs & Relationships
 
 ```
-users/{uid}                              uid = sha256(phoneNumber)[:32]
+users/{phoneNumber}                              doc id = the user's own E.164 phone number
   │
-  ├─ owns ──▶ personaChats/{uid}_{profileId}     (1 per user × persona pair, deterministic)
-  ├─ owns ──▶ subscriptions/{uid}                (0 or 1)
-  ├─ owns ──▶ reports/{uid}                      (0 or 1 — latest report only, overwritten each regenerate)
-  └─ referenced by ──▶ payments/{autoId}.userId  (many, append-only log)
+  ├─ owns ──▶ personaChats/{phoneNumber}_{profileId}   (1 per user × persona pair, deterministic)
+  ├─ owns ──▶ subscriptions/{phoneNumber}              (0 or 1)
+  ├─ owns ──▶ reports/{phoneNumber}                    (0 or 1 — latest report only, overwritten each regenerate)
+  └─ referenced by ──▶ payments/{autoId}.userId        (many, append-only log)
 
-otps/{phoneNumber}                       keyed by phone, not uid (exists pre-account-creation)
+otps/{phoneNumber}                       same key space — exists pre-account-creation
 
 horoscopes/{sign}/daily/{date}           global, not user-scoped
 ```
 
-Every per-user collection above is keyed directly by `uid` (or `${uid}_${profileId}`), so there are no join queries — ownership is enforced by doc-ID equality plus an explicit `userId` field check in the handler (e.g. `requireOwnedChat`), not by a Firestore query.
+Every per-user collection above is keyed directly by the phone number (or `${phoneNumber}_${profileId}`), so there are no join queries — ownership is enforced by doc-ID equality plus an explicit `userId` field check in the handler (e.g. `requireOwnedChat`), not by a Firestore query.
 
 ---
 
 ## 4. Security Rules Summary (`firestore.rules`)
 
 ```
-users/{uid}                        deny all
+users/{phoneNumber}                deny all
 chats/{chatId}                     deny all   ⚠️ stale, see §6
   messages/{messageId}             deny all   ⚠️ stale, see §6
-subscriptions/{uid}                deny all
+subscriptions/{phoneNumber}        deny all
 payments/{paymentId}               deny all
-reports/{uid}                      deny all
+reports/{phoneNumber}              deny all
+personaChats/{sessionId}           deny all
+personaConfig/{profileId}          deny all
 otps/{phoneNumber}                 deny all
 horoscopes/{sign}/daily/{date}     read: true,  write: false
 appConfig/{document}               read: true,  write: false
 ```
 
-Because the app authenticates via a custom backend-issued JWT (not Firebase Auth), `request.auth` is always `null` for any request coming from the phone — so the `if false` rules aren't really doing fine-grained per-user filtering, they're a blanket "the client can never touch this collection at all" wall. All real authorization (whose chat/report/subscription this is) happens in the backend's own handler code via `req.uid` from the verified JWT.
+Because the app authenticates via a custom backend-issued JWT (not Firebase Auth), `request.auth` is always `null` for any request coming from the phone — so the `if false` rules aren't really doing fine-grained per-user filtering, they're a blanket "the client can never touch this collection at all" wall. All real authorization (whose chat/report/subscription this is) happens in the backend's own handler code via `req.uid` (== the caller's phone number) from the verified JWT.
 
 `firestore.indexes.json` is empty — no composite indexes are currently defined (queries like `chats.where('userId', '==', uid)` in `account.controller.ts` run against a single field, which Firestore indexes automatically).
 

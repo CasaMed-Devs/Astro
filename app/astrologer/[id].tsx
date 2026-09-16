@@ -10,10 +10,11 @@ import { Screen } from '@/components/common/Screen';
 import { EmptyView } from '@/components/states/EmptyView';
 import { ErrorView } from '@/components/states/ErrorView';
 import { LoadingView } from '@/components/states/LoadingView';
+import { RequiredInputForm } from '@/features/astrologers/components/RequiredInputForm';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import { getOrCreateChat } from '@/services/chat.service';
-import type { AstrologerProfile } from '@/features/astrologers/types';
+import type { AstrologerProfile, RequiredInput } from '@/features/astrologers/types';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -23,12 +24,6 @@ const AUTO_FILLED_KEYS = new Set(['dob', 'tob', 'pob']);
 type DetailTab = 'Profile' | 'Report' | 'Talk';
 
 const TABS: DetailTab[] = ['Profile', 'Report', 'Talk'];
-
-const TEMPORARY_BILLING_PLACEHOLDER = {
-  currencySymbol: '₹',
-  firstMinute: 39,
-  nextMinute: 39,
-};
 
 const FALLBACK_PROFILE = {
   rating: '4.9',
@@ -67,6 +62,7 @@ export default function AstrologerDetailScreen() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>('Profile');
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -98,9 +94,9 @@ export default function AstrologerDetailScreen() {
     );
   }, [persona]);
 
-  const canStart = missingInputs.length === 0;
-  const billingAmount = `${TEMPORARY_BILLING_PLACEHOLDER.currencySymbol}${TEMPORARY_BILLING_PLACEHOLDER.firstMinute}`;
-  const billingRate = `${TEMPORARY_BILLING_PLACEHOLDER.currencySymbol}${TEMPORARY_BILLING_PLACEHOLDER.nextMinute}`;
+  const unfilledInputs = missingInputs.filter((input) => !inputValues[input.key]?.trim());
+  const canStart = unfilledInputs.length === 0;
+  const sessionCredits = persona?.creditCostPerSession ?? 0;
 
   if (loading) {
     return (
@@ -137,7 +133,7 @@ export default function AstrologerDetailScreen() {
         params: {
           chatId,
           personaId: persona.id,
-          context: JSON.stringify({}),
+          context: JSON.stringify(inputValues),
           initialMessage: '',
         },
       });
@@ -170,9 +166,9 @@ export default function AstrologerDetailScreen() {
             </AppText>
           </View>
           <View style={styles.priceRow}>
-            <AppText style={styles.priceText}>{billingRate}</AppText>
+            <AppText style={styles.priceText}>{sessionCredits}</AppText>
             <AppText variant="bodySmall" color={colors.textSecondary}>
-              /min
+              credit{sessionCredits === 1 ? '' : 's'} / 10-min session
             </AppText>
           </View>
         </View>
@@ -200,13 +196,15 @@ export default function AstrologerDetailScreen() {
       </View>
 
       {activeTab === 'Profile' ? (
-        <ProfileSection persona={persona} billingRate={billingRate} />
+        <ProfileSection persona={persona} sessionCredits={sessionCredits} />
       ) : activeTab === 'Report' ? (
         <ReportSection persona={persona} />
       ) : (
         <TalkSection
-          billingAmount={billingAmount}
-          billingRate={billingRate}
+          sessionCredits={sessionCredits}
+          missingInputs={missingInputs}
+          inputValues={inputValues}
+          onChangeInput={(key, value) => setInputValues((prev) => ({ ...prev, [key]: value }))}
           canStart={canStart}
           error={error}
           onStartChat={startChat}
@@ -219,10 +217,10 @@ export default function AstrologerDetailScreen() {
 
 function ProfileSection({
   persona,
-  billingRate,
+  sessionCredits,
 }: {
   persona: AstrologerProfile;
-  billingRate: string;
+  sessionCredits: number;
 }) {
   return (
     <>
@@ -234,7 +232,10 @@ function ProfileSection({
 
       <InfoCard title="Persona">
         <KeyValue label="Years in astrology" value={FALLBACK_PROFILE.yearsInAstrology} />
-        <KeyValue label="Charges" value={`${billingRate}/min`} />
+        <KeyValue
+          label="Charges"
+          value={`${sessionCredits} credit${sessionCredits === 1 ? '' : 's'} / 10-min session`}
+        />
         <KeyValue label="Languages" value={FALLBACK_PROFILE.languages} />
         <KeyValue label="Based in" value={persona.city || FALLBACK_PROFILE.basedIn} />
       </InfoCard>
@@ -302,36 +303,46 @@ function ReportSection({ persona }: { persona: AstrologerProfile }) {
 }
 
 function TalkSection({
-  billingAmount,
-  billingRate,
+  sessionCredits,
+  missingInputs,
+  inputValues,
+  onChangeInput,
   canStart,
   error,
   onStartChat,
   starting,
 }: {
-  billingAmount: string;
-  billingRate: string;
+  sessionCredits: number;
+  missingInputs: RequiredInput[];
+  inputValues: Record<string, string>;
+  onChangeInput: (key: string, value: string) => void;
   canStart: boolean;
   error: string | null;
   onStartChat: () => void;
   starting: boolean;
 }) {
+  const creditLabel = `${sessionCredits} credit${sessionCredits === 1 ? '' : 's'}`;
+
   return (
     <>
-      <InfoCard title="Per-Minute Billing">
+      <InfoCard title="Session Pricing">
         <AppText variant="body" style={styles.paragraph}>
-          Pay <AppText style={styles.inlineHighlight}>{billingAmount}</AppText> to start the
-          consultation. The chat begins immediately and continues automatically, charging{' '}
-          <AppText style={styles.inlineHighlight}>{billingRate}</AppText> for every additional
-          minute. End the chat any time to stop billing.
+          Pay <AppText style={styles.inlineHighlight}>{creditLabel}</AppText> to start a 10-minute
+          chat session. Send as many messages as you like within that window — no per-message
+          charges. Once the 10 minutes are up, start a new session to keep chatting.
         </AppText>
       </InfoCard>
 
       <InfoCard title="Payment Summary">
-        <KeyValue label="First minute" value={billingAmount} />
-        <KeyValue label="Then" value={`${billingRate} / min`} />
-        <KeyValue label="Payable now" value={billingAmount} highlight />
+        <KeyValue label="Session length" value="10 minutes" />
+        <KeyValue label="Payable now" value={creditLabel} highlight />
       </InfoCard>
+
+      {missingInputs.length > 0 ? (
+        <InfoCard title="A Few Details First">
+          <RequiredInputForm inputs={missingInputs} values={inputValues} onChange={onChangeInput} />
+        </InfoCard>
+      ) : null}
 
       {error ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.errorText}>
@@ -339,14 +350,14 @@ function TalkSection({
         </AppText>
       ) : null}
 
-      {!canStart ? (
+      {!canStart && missingInputs.length > 0 ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.errorText}>
-          This astrologer needs extra profile details before chat can start.
+          Please fill in the details above to start chatting.
         </AppText>
       ) : null}
 
       <Button
-        label={`Pay ${billingAmount} & start chat`}
+        label={`Pay ${creditLabel} & start chat`}
         onPress={onStartChat}
         loading={starting}
         disabled={!canStart}
@@ -354,7 +365,7 @@ function TalkSection({
       />
 
       <AppText variant="caption" color={colors.textSecondary} style={styles.secureText}>
-        Secure payment · Auto-charged every minute while the chat is live
+        Secure payment · Charged once per 10-minute session
       </AppText>
     </>
   );

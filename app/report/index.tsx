@@ -143,7 +143,19 @@ export default function ReportScreen() {
 
   useEffect(() => {
     if (!session) return;
-    return subscribeToReport(setReport);
+    // Stop polling once the report reaches a terminal state — otherwise
+    // this keeps re-fetching (and re-rendering the whole screen, including
+    // the SVG chart) every few seconds forever, which is wasteful and can
+    // trigger native view-tree crashes in react-native-svg under repeated
+    // re-renders.
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = subscribeToReport((next) => {
+      setReport(next);
+      if (next && (next.status === 'ready' || next.status === 'failed')) {
+        unsubscribe?.();
+      }
+    });
+    return () => unsubscribe?.();
   }, [session]);
 
   useEffect(() => {

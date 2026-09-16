@@ -193,19 +193,20 @@ export function NorthIndianChart({ kundali, size = 320 }: Props) {
         >
           {sign} {signName}
         </SvgText>
-        {/* Planets */}
-        {planetStr ? (
-          <SvgText
-            x={cx}
-            y={cy + 9}
-            textAnchor="middle"
-            fontSize={9}
-            fontFamily={fonts.bodyRegular}
-            fill={colors.textPrimary}
-          >
-            {planetStr}
-          </SvgText>
-        ) : null}
+        {/* Planets — always rendered (even empty) so this <G>'s child count
+            never changes between renders; react-native-svg under Fabric can
+            crash with "addViewAt: ... already has a parent" when an SVG
+            node's children are conditionally added/removed across renders. */}
+        <SvgText
+          x={cx}
+          y={cy + 9}
+          textAnchor="middle"
+          fontSize={9}
+          fontFamily={fonts.bodyRegular}
+          fill={colors.textPrimary}
+        >
+          {planetStr}
+        </SvgText>
       </G>
     );
   }

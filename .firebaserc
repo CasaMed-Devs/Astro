@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "astro-d9814"
-  }
+  },
+  "targets": {
+    "astro-d9814": {
+      "hosting": {
+        "api": [
+          "astro-d9814"
+        ],
+        "admin": [
+          "astro101-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
