@@ -63,7 +63,10 @@ function formatChartForPrompt(kundali: KundaliData): string {
 }
 
 export async function markReportPending(uid: string): Promise<void> {
-  await adminFirestore().collection('reports').doc(uid).set({ status: 'pending' }, { merge: true });
+  await adminFirestore()
+    .collection('reports')
+    .doc(uid)
+    .set({ status: 'pending', phoneNumber: uid }, { merge: true });
 }
 
 export async function generateAndStoreReport(uid: string): Promise<void> {
@@ -112,7 +115,7 @@ export async function generateAndStoreReport(uid: string): Promise<void> {
     };
 
     // Save kundali data immediately — chart is visible even if AI step fails.
-    await reportRef.set({ kundali: firestoreKundali }, { merge: true });
+    await reportRef.set({ phoneNumber: uid, kundali: firestoreKundali }, { merge: true });
 
     const prompt = [
       `Name: ${user.name ?? 'the user'}. Gender: ${user.gender ?? 'unspecified'}.`,

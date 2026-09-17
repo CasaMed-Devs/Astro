@@ -10,21 +10,21 @@ export const onboardingSlides: OnboardingSlide[] = [
     id: 'stars-decoded',
     title: 'Your stars, decoded',
     description:
-      'Vedic charts read with AI trained on decades of shastra knowledge — clear answers, not guesswork.',
+      'Vedic charts read by astrologers who have spent decades with the shastras — not guesswork.',
     image: require('../../../../assets/images/onboarding/stars-decoded.png'),
   },
   {
     id: 'pick-skill',
     title: 'Pick the right skill',
     description:
-      'Filter by Kundali, Tarot, Palmistry, Numerology or Vastu and choose the AI astrologer who fits your question.',
+      'Filter by Kundali, Tarot, Palmistry, Numerology or Vastu and choose the expert who fits your question.',
     image: require('../../../../assets/images/onboarding/pick-skill.png'),
   },
   {
-    id: 'ask-anything',
-    title: 'Ask anything, anytime',
+    id: 'talk-by-the-minute',
+    title: 'Talk by the minute',
     description:
-      'No waiting for a human. Start a chat, ask freely, and get your answer the moment you need it.',
+      'No long packages. Start a chat, pay only for the minutes you use, end whenever you have your answer.',
     image: require('../../../../assets/images/onboarding/ask-anything.png'),
   },
 ];

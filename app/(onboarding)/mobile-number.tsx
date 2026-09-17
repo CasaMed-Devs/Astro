@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { AppText } from '@/components/common/AppText';
@@ -59,6 +59,17 @@ export default function MobileNumberScreen() {
 
   return (
     <Screen>
+      <View style={styles.brand}>
+        <Image
+          source={require('../../assets/images/android-icon-foreground.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <AppText variant="wordmark" color={colors.primary}>
+          Astro101
+        </AppText>
+      </View>
+
       <View style={styles.header}>
         <AppText variant="displayMd">Enter your mobile number</AppText>
         <AppText variant="body" color={colors.textSecondary}>
@@ -114,6 +125,8 @@ export default function MobileNumberScreen() {
 }
 
 const styles = StyleSheet.create({
+  brand: { alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg },
+  logo: { width: 150, height: 150 },
   header: { gap: spacing.sm, marginTop: spacing.xl },
   field: { gap: spacing.sm, marginTop: spacing.xxl },
   footer: { marginTop: 'auto', marginBottom: spacing.xl, gap: spacing.md },

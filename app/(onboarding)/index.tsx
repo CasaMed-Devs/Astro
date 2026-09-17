@@ -1,5 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
-import { Dimensions, FlatList, Image, StyleSheet, View, type ViewToken } from 'react-native';
+import {
+  Dimensions,
+  FlatList,
+  Image,
+  Pressable,
+  StyleSheet,
+  View,
+  type ViewToken,
+} from 'react-native';
 import { router } from 'expo-router';
 
 import { AppText } from '@/components/common/AppText';
@@ -7,7 +15,7 @@ import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { ProgressDots } from '@/features/onboarding/components/ProgressDots';
 import { onboardingSlides } from '@/features/onboarding/config/slides';
-import { colors, spacing } from '@/constants/theme';
+import { colors, radii, spacing } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -33,8 +41,19 @@ export default function OnboardingCarousel() {
     listRef.current?.scrollToIndex({ index: activeIndex + 1 });
   };
 
+  const handleSkip = () => {
+    router.push('/(onboarding)/mobile-number');
+  };
+
   return (
     <Screen padded={false} edges={['top', 'bottom']}>
+      <View style={styles.header}>
+        <Pressable onPress={handleSkip} hitSlop={12} testID="onboarding-skip">
+          <AppText variant="body" color={colors.textSecondary}>
+            Skip
+          </AppText>
+        </Pressable>
+      </View>
       <FlatList
         ref={listRef}
         data={onboardingSlides}
@@ -46,9 +65,13 @@ export default function OnboardingCarousel() {
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         renderItem={({ item }) => (
           <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-            <Image source={item.image} style={styles.image} resizeMode="cover" />
+            <View style={styles.imageCard}>
+              <Image source={item.image} style={styles.image} resizeMode="cover" />
+            </View>
             <View style={styles.textBlock}>
-              <AppText variant="displayMd">{item.title}</AppText>
+              <AppText variant="displayLg" style={styles.title}>
+                {item.title}
+              </AppText>
               <AppText variant="body" color={colors.textSecondary} style={styles.description}>
                 {item.description}
               </AppText>
@@ -59,7 +82,7 @@ export default function OnboardingCarousel() {
       <View style={styles.footer}>
         <ProgressDots count={onboardingSlides.length} activeIndex={activeIndex} />
         <Button
-          label="Continue"
+          label={isLastSlide ? 'Create my account' : 'Continue'}
           onPress={handleContinue}
           style={styles.continueButton}
           testID="onboarding-continue"
@@ -70,10 +93,20 @@ export default function OnboardingCarousel() {
 }
 
 const styles = StyleSheet.create({
+  header: { alignItems: 'flex-end', paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
   slide: { flex: 1 },
-  image: { width: '100%', height: '52%' },
-  textBlock: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, gap: spacing.sm },
-  description: { lineHeight: 22 },
+  imageCard: {
+    marginHorizontal: spacing.xl,
+    aspectRatio: 1,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  image: { width: '100%', height: '100%' },
+  textBlock: { paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, gap: spacing.md },
+  title: { fontSize: 34, lineHeight: 40 },
+  description: { fontSize: 16, lineHeight: 24 },
   footer: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.lg },
   continueButton: { width: '100%' },
 });
