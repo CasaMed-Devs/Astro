@@ -4,7 +4,7 @@ import { createApp } from './app';
 
 const app = createApp();
 
-export const api = onRequest({ region: 'asia-south1' }, app);
+export const api = onRequest({ region: 'asia-south1', invoker: 'public' }, app);
 
 export { checkExpiredSubscriptions } from './scheduled/subscriptionExpiry';
 export { onUserCreated } from './triggers/onUserCreated';

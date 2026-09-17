@@ -3,7 +3,17 @@ import Constants from 'expo-constants';
 import { getSession } from '@/services/session';
 import { AppError } from '@/utils/errors';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? Constants.expoConfig?.extra?.apiUrl ?? '';
+type BackendTarget = 'local' | 'vercel' | 'firebase';
+
+const BACKEND_URLS: Record<BackendTarget, string | undefined> = {
+  local: process.env.EXPO_PUBLIC_API_URL_LOCAL,
+  vercel: process.env.EXPO_PUBLIC_API_URL_VERCEL,
+  firebase: process.env.EXPO_PUBLIC_API_URL_FIREBASE,
+};
+
+const BACKEND_TARGET = (process.env.EXPO_PUBLIC_BACKEND_TARGET as BackendTarget | undefined) ?? 'firebase';
+
+const API_URL = BACKEND_URLS[BACKEND_TARGET] ?? Constants.expoConfig?.extra?.apiUrl ?? '';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 

@@ -10,12 +10,20 @@ import { env } from './env';
  * `initializeApp()` with no args picks up Application Default
  * Credentials automatically) — no Firebase Emulator required either way.
  */
+// functions/.env can't set FIREBASE_PROJECT_ID itself — Firebase's own env
+// loader rejects any FIREBASE_-prefixed key at deploy time — so the project
+// id here is a plain fallback used whenever it isn't supplied another way
+// (e.g. on Vercel, where that restriction doesn't apply).
+const DEFAULT_PROJECT_ID = 'astro-d9814';
+
 function createApp(): App {
   if (getApps().length > 0) {
     return getApps()[0]!;
   }
 
-  if (env.firebase.projectId && env.firebase.clientEmail && env.firebase.privateKey) {
+  if (env.firebase.clientEmail && env.firebase.privateKey) {
+    const projectId = env.firebase.projectId ?? DEFAULT_PROJECT_ID;
+
     if (!env.firebase.privateKey.includes('BEGIN PRIVATE KEY')) {
       // Never log the key itself — just enough shape info to diagnose a bad
       // FIREBASE_PRIVATE_KEY / FIREBASE_PRIVATE_KEY_B64 value without a leak.
@@ -27,9 +35,9 @@ function createApp(): App {
     }
 
     return initializeApp({
-      projectId: env.firebase.projectId,
+      projectId,
       credential: cert({
-        projectId: env.firebase.projectId,
+        projectId,
         clientEmail: env.firebase.clientEmail,
         privateKey: env.firebase.privateKey,
       }),
@@ -40,7 +48,7 @@ function createApp(): App {
     return initializeApp({ projectId: env.firebase.projectId });
   }
 
-  return initializeApp({ projectId: 'astro-d9814' });
+  return initializeApp({ projectId: DEFAULT_PROJECT_ID });
 }
 
 const app = createApp();

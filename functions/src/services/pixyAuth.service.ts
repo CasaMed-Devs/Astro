@@ -1,6 +1,6 @@
 import { HttpError } from '../utils/errors';
 
-const PIXY_BASE_URL = 'https://api.authservice.postkaro.app/api/v1/auth/pixy';
+const PIXY_BASE_URL = 'https://api.authservice.postkaro.app/api/v1/auth/astro';
 
 class PixyAuthUnavailableError extends HttpError {
   constructor(reason: string) {

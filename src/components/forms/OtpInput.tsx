@@ -23,8 +23,18 @@ export function OtpInput({ value, onChange, autoFocus }: OtpInputProps) {
 
   const handleChangeDigit = (digit: string, index: number) => {
     const sanitized = digit.replace(/[^0-9]/g, '');
+
+    // A paste or SMS autofill delivers the whole code to whichever box was
+    // focused — spread it across all boxes instead of keeping just one digit.
+    if (sanitized.length > 1) {
+      const pasted = sanitized.slice(0, CODE_LENGTH);
+      onChange(pasted);
+      inputRefs.current[Math.min(pasted.length, CODE_LENGTH - 1)]?.focus();
+      return;
+    }
+
     const nextValue = value.split('');
-    nextValue[index] = sanitized.slice(-1) ?? '';
+    nextValue[index] = sanitized;
     onChange(nextValue.join('').slice(0, CODE_LENGTH));
 
     if (sanitized && index < CODE_LENGTH - 1) {
@@ -53,7 +63,7 @@ export function OtpInput({ value, onChange, autoFocus }: OtpInputProps) {
           onChangeText={(text) => handleChangeDigit(text, index)}
           onKeyPress={(event) => handleKeyPress(event, index)}
           keyboardType="number-pad"
-          maxLength={1}
+          maxLength={CODE_LENGTH}
           autoFocus={autoFocus && index === 0}
           textContentType="oneTimeCode"
           style={[styles.box, digit ? styles.boxFilled : null]}

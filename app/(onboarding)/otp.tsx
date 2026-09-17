@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { AppText } from '@/components/common/AppText';
@@ -31,7 +31,12 @@ export default function OtpScreen() {
     setVerifying(true);
     try {
       await confirmOtp(phoneNumber, code, identificationToken);
-      router.replace('/(onboarding)/birth-details');
+      Keyboard.dismiss();
+      // Defer to the next frame so the keyboard-dismiss commit fully settles
+      // before react-native-screens tears down this screen and mounts the
+      // next one — doing both in the same commit is what triggers Fabric's
+      // "addViewAt: ... already has a parent" crash on Android.
+      requestAnimationFrame(() => router.replace('/(onboarding)/birth-details'));
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not verify the code.');
     } finally {
