@@ -39,7 +39,7 @@ const GENDER_OPTIONS: { label: string; value: Gender }[] = [
 ];
 
 export default function BirthDetailsScreen() {
-  const { session, hasBirthDetails, refreshProfile } = useAuth();
+  const { session } = useAuth();
   const [form, setForm] = useState<BirthDetailsFormState>({
     fullName: '',
     dateOfBirth: null,
@@ -82,11 +82,23 @@ export default function BirthDetailsScreen() {
         SAVE_TIMEOUT_MS,
         'Saving is taking too long. Check your connection and try again.',
       );
+      // Deliberately navigate away BEFORE refreshing the profile: refreshing
+      // here (while still inside the onboarding stack) would flip
+      // hasBirthDetails to true and trigger the onboarding layout's own
+      // auto-redirect to home at the same moment we're navigating to the
+      // paywall — two competing navigations racing over the native view
+      // tree, which crashes on Android's Fabric renderer. The paywall
+      // screen refreshes the profile itself once it's safely mounted.
       router.replace('/paywall');
-      refreshProfile().catch(() => {});
+      // No `finally`/setSubmitting(false) on the success path on purpose:
+      // this screen is navigating away and about to unmount, so a state
+      // update here would land on it at the exact moment the navigator is
+      // mid-transition — the real cause of the Fabric "child already has a
+      // parent" crash (setSubmitting(true) put the Button into its loading
+      // state; only the error path needs to undo that, since only the
+      // error path keeps this screen mounted).
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not save your details.');
-    } finally {
       setSubmitting(false);
     }
   };

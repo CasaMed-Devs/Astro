@@ -1,21 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Check, Crown, X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Check, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
+import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import { getMandate, getPricing, startTrialPayment } from '@/services/payment.service';
-import { colors, radii, spacing } from '@/constants/theme';
+import type { AstrologerProfile } from '@/features/astrologers/types';
+import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
-import type { MandateMethod } from '@/types/firestore';
+
+// Registration defaults to UPI Autopay — India's most common recurring-
+// payment method — rather than asking the user to choose upfront, per
+// product decision. Razorpay's hosted registration page is still where the
+// payment actually happens.
+const REGISTRATION_METHOD = 'upi' as const;
+
+const HERO_GRADIENT = ['#FFF3E0', '#FDE7C8'] as const;
 
 const FEATURES = [
-  '5 free credits the moment you set up auto-pay',
-  '1 credit = 1 message, same price with every astrologer',
-  'No time limits — chat as long as you have credits',
+  '5 free credits the moment your trial starts',
+  'Same 1-credit rate with every astrologer',
+  'Credits top up automatically every month',
+  'Cancel anytime, no questions asked',
 ];
 
 const POLL_INTERVAL_MS = 4000;
@@ -23,9 +34,10 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function PaywallScreen() {
   const { session, profile, refreshProfile } = useAuth();
-  const [amount, setAmount] = useState<number | undefined>(undefined);
-  const [currency, setCurrency] = useState<string | undefined>(undefined);
-  const [method, setMethod] = useState<MandateMethod>('upi');
+  const [trialAmount, setTrialAmount] = useState<number | undefined>(undefined);
+  const [trialCurrency, setTrialCurrency] = useState<string | undefined>(undefined);
+  const [subscriptionAmount, setSubscriptionAmount] = useState<number | undefined>(undefined);
+  const [avatarPersonas, setAvatarPersonas] = useState<AstrologerProfile[]>([]);
   const [processing, setProcessing] = useState(false);
   const [waitingForConfirmation, setWaitingForConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,15 +52,33 @@ export default function PaywallScreen() {
   }, [profile?.trialCreditsClaimed]);
 
   useEffect(() => {
+    fetchAstrologerProfiles()
+      .then((profiles) => setAvatarPersonas(profiles.slice(0, 6)))
+      .catch(() => setAvatarPersonas([]));
+  }, []);
+
+  useEffect(() => {
     getPricing()
       .then((pricing) => {
-        setAmount(pricing.trial.amount);
-        setCurrency(pricing.trial.currency);
+        setTrialAmount(pricing.trial.amount);
+        setTrialCurrency(pricing.trial.currency);
+        setSubscriptionAmount(pricing.subscription.amount);
       })
       .catch(() => {
-        setAmount(undefined);
-        setCurrency(undefined);
+        setTrialAmount(undefined);
+        setTrialCurrency(undefined);
+        setSubscriptionAmount(undefined);
       });
+  }, []);
+
+  // Refreshed here rather than by the screen that navigated us here (e.g.
+  // right after saving birth details) — doing it there, while still inside
+  // the onboarding stack, would flip hasBirthDetails to true and trigger
+  // that stack's own auto-redirect to home at the same moment as our
+  // navigation to this screen, racing over the native view tree.
+  useEffect(() => {
+    refreshProfile().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -92,7 +122,7 @@ export default function PaywallScreen() {
     setProcessing(true);
     setError(null);
     try {
-      const registration = await startTrialPayment(method);
+      const registration = await startTrialPayment(REGISTRATION_METHOD);
       await Linking.openURL(registration.shortUrl);
       startPollingForConfirmation();
     } catch (err) {
@@ -102,7 +132,8 @@ export default function PaywallScreen() {
     }
   };
 
-  const pricingReady = amount != null && currency != null;
+  const pricingReady = trialAmount != null && trialCurrency != null;
+  const currencySymbol = trialCurrency === 'INR' ? '₹' : '';
 
   // Closing without paying sends the user to the home screen, not "back" —
   // this screen is shown immediately after onboarding (no meaningful screen
@@ -113,71 +144,83 @@ export default function PaywallScreen() {
   return (
     <Screen scroll>
       <Pressable onPress={handleClose} style={styles.closeButton}>
-        <X size={18} color={colors.textPrimary} />
+        <X size={20} color={colors.textPrimary} />
       </Pressable>
+
+      <LinearGradient
+        colors={HERO_GRADIENT}
+        style={styles.heroCard}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.heroGlyphRow}>
+          <AppText style={styles.heroGlyph}>ॐ</AppText>
+          <AppText style={styles.heroGlyphTitle}>जन्म कुंडली</AppText>
+          <AppText style={styles.heroGlyph}>ॐ</AppText>
+        </View>
+        {avatarPersonas.length > 0 ? (
+          <>
+            <View style={styles.avatarStrip}>
+              {avatarPersonas.map((persona) => (
+                <Image key={persona.id} source={{ uri: persona.photoUrl }} style={styles.avatar} />
+              ))}
+            </View>
+            <AppText style={styles.avatarCaption}>
+              Kundali, tarot & palmistry experts ready to read your chart
+            </AppText>
+          </>
+        ) : null}
+      </LinearGradient>
 
       <View style={styles.header}>
         <View style={styles.badge}>
-          <Crown size={16} color={colors.primary} />
-          <AppText variant="label" color={colors.primary}>
-            ASTRO101
-          </AppText>
+          <Sparkles size={16} color={colors.primary} />
+          <AppText style={styles.badgeText}>ASTRO101 PLUS</AppText>
         </View>
-        <AppText variant="displayMd">Try it for {currency === 'INR' ? '₹' : ''}1</AppText>
-        <AppText variant="bodySmall" color={colors.textSecondary}>
-          Set up auto-pay once, get 5 free credits instantly, and only ₹299 gets auto-debited
-          starting the next day — cancel anytime.
+        <AppText style={styles.headline}>
+          Talk more, <AppText style={styles.headlineAccent}>pay less</AppText>
+        </AppText>
+        <AppText style={styles.subtext}>
+          Start your trial and get 5 free credits instantly, then a flat monthly top-up keeps you
+          talking.
         </AppText>
       </View>
 
       <View style={styles.features}>
         {FEATURES.map((feature) => (
           <View key={feature} style={styles.featureRow}>
-            <Check size={16} color={colors.primary} />
-            <AppText variant="label" color={colors.textSecondary} style={styles.featureText}>
-              {feature}
-            </AppText>
+            <View style={styles.featureIconWrap}>
+              <Check size={16} color={colors.primary} strokeWidth={3} />
+            </View>
+            <AppText style={styles.featureText}>{feature}</AppText>
           </View>
         ))}
       </View>
 
       {pricingReady ? (
         <View style={styles.priceCard}>
-          <View>
-            <AppText variant="cardTitle">Pay now</AppText>
-            <AppText variant="bodySmall" color={colors.textSecondary}>
-              Then ₹299/month auto-debit from day 2
+          <View style={styles.priceAccentBar} />
+          <View style={styles.priceCardBody}>
+            <View style={styles.priceCardCopy}>
+              <AppText style={styles.priceCardTitle}>Try it now</AppText>
+              <AppText style={styles.priceCardSubtitle}>
+                Then {currencySymbol}
+                {subscriptionAmount ?? '—'}/month · Cancel anytime
+              </AppText>
+            </View>
+            <AppText style={styles.priceValue}>
+              {currencySymbol}
+              {trialAmount}
             </AppText>
           </View>
-          <AppText variant="displayMd" color={colors.primaryDark}>
-            {currency === 'INR' ? '₹' : ''}
-            {amount}
-          </AppText>
         </View>
       ) : (
         <View style={styles.priceCard}>
-          <AppText variant="cardTitle">Pricing coming soon</AppText>
+          <View style={styles.priceCardBody}>
+            <AppText style={styles.priceCardTitle}>Pricing coming soon</AppText>
+          </View>
         </View>
       )}
-
-      <View style={styles.methodRow}>
-        <Pressable
-          style={[styles.methodChip, method === 'upi' && styles.methodChipActive]}
-          onPress={() => setMethod('upi')}
-        >
-          <AppText variant="label" color={method === 'upi' ? colors.onGradientText : colors.textPrimary}>
-            UPI Autopay
-          </AppText>
-        </Pressable>
-        <Pressable
-          style={[styles.methodChip, method === 'card' && styles.methodChipActive]}
-          onPress={() => setMethod('card')}
-        >
-          <AppText variant="label" color={method === 'card' ? colors.onGradientText : colors.textPrimary}>
-            Card
-          </AppText>
-        </Pressable>
-      </View>
 
       {error ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
@@ -186,22 +229,21 @@ export default function PaywallScreen() {
       ) : null}
 
       {waitingForConfirmation ? (
-        <AppText variant="bodySmall" color={colors.textSecondary} style={styles.error}>
+        <AppText style={styles.waitingText}>
           Waiting for payment confirmation... complete it in the browser tab that opened.
         </AppText>
       ) : null}
 
       <View style={styles.footer}>
         <Button
-          label="Start trial"
+          label={pricingReady ? `Start trial for ${currencySymbol}${trialAmount}` : 'Start trial'}
           onPress={handleStartTrial}
           loading={processing || waitingForConfirmation}
           disabled={!pricingReady || !session}
+          style={styles.ctaButton}
         />
         <Pressable onPress={handleClose}>
-          <AppText variant="body" color={colors.textSecondary} style={styles.skipLabel}>
-            Not now
-          </AppText>
+          <AppText style={styles.skipLabel}>Continue without trial</AppText>
         </Pressable>
       </View>
     </Screen>
@@ -211,41 +253,149 @@ export default function PaywallScreen() {
 const styles = StyleSheet.create({
   closeButton: {
     alignSelf: 'flex-end',
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.sm,
+    ...shadows.card,
   },
-  header: { gap: spacing.sm, marginTop: spacing.md },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  features: { gap: spacing.md, marginTop: spacing.xl },
-  featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  featureText: { flex: 1 },
+  heroCard: {
+    marginTop: spacing.md,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    ...shadows.card,
+  },
+  heroGlyphRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  heroGlyph: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.primary },
+  heroGlyphTitle: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.textPrimary },
+  avatarStrip: { flexDirection: 'row' },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: radii.pill,
+    marginLeft: -14,
+    borderWidth: 3,
+    borderColor: colors.surface,
+  },
+  avatarCaption: {
+    marginTop: spacing.md,
+    textAlign: 'center',
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.md,
+  },
+  header: { gap: spacing.sm, marginTop: spacing.xxl },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+  },
+  badgeText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 13,
+    letterSpacing: 0.5,
+    color: colors.primary,
+  },
+  headline: {
+    fontFamily: fonts.display,
+    fontSize: 38,
+    lineHeight: 44,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  headlineAccent: {
+    fontFamily: fonts.display,
+    fontSize: 38,
+    lineHeight: 44,
+    color: colors.primary,
+  },
+  subtext: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  features: { gap: spacing.lg, marginTop: spacing.xxl },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  featureIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureText: {
+    flex: 1,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.textPrimary,
+  },
   priceCard: {
-    marginTop: spacing.xl,
+    marginTop: spacing.xxl,
     backgroundColor: colors.surface,
     borderRadius: radii.lg,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  priceAccentBar: { width: 6, backgroundColor: colors.primary },
+  priceCardBody: {
+    flex: 1,
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  methodRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
-  methodChip: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  priceCardCopy: { flex: 1, gap: 2 },
+  priceCardTitle: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 18,
+    color: colors.textPrimary,
   },
-  methodChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  error: { marginTop: spacing.md },
-  footer: { marginTop: spacing.xl, marginBottom: spacing.xxl, gap: spacing.md },
-  skipLabel: { textAlign: 'center' },
+  priceCardSubtitle: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  priceValue: {
+    fontFamily: fonts.display,
+    fontSize: 34,
+    color: colors.primaryDark,
+  },
+  error: { marginTop: spacing.md, fontSize: 14 },
+  waitingText: {
+    marginTop: spacing.md,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  footer: { marginTop: spacing.xxl, marginBottom: spacing.xxl, gap: spacing.md },
+  ctaButton: { height: 56 },
+  skipLabel: {
+    textAlign: 'center',
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 15,
+    color: colors.textSecondary,
+  },
 });
