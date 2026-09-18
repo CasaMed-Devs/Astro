@@ -1,6 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 
+import '../types'; // pulls in Express.Request augmentation (uid)
 import { errorHandler } from './errorHandler';
 
 jest.mock('../services/token.service', () => ({

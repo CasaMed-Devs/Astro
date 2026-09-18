@@ -11,20 +11,29 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:3000"
+        "EXPO_PUBLIC_BACKEND_TARGET": "local",
+        "EXPO_PUBLIC_API_URL_LOCAL": "http://192.168.1.15:3000"
       }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_TARGET": "firebase",
+        "EXPO_PUBLIC_API_URL_FIREBASE": "https://astro-d9814.web.app"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
       },
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_BACKEND_TARGET": "firebase",
+        "EXPO_PUBLIC_API_URL_FIREBASE": "https://astro-d9814.web.app"
+      }
     }
   },
   "submit": {

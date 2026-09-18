@@ -7,8 +7,12 @@ import { getTodayHoroscope } from '../controllers/horoscope.controller';
 import {
   createReportOrder,
   createSubscriptionOrder,
+  createTopUpOrder,
+  getPublicPricing,
+  getTopUpConfigHandler,
   verifyReportPayment,
   verifySubscriptionPayment,
+  verifyTopUpPayment,
 } from '../controllers/payment.controller';
 import { deleteAccount } from '../controllers/account.controller';
 import { devLogin, sendOtp, verifyOtpAndSignIn } from '../controllers/auth.controller';
@@ -52,6 +56,10 @@ router.post('/payments/subscription/order', requireAuth, asyncHandler(createSubs
 router.post('/payments/subscription/verify', requireAuth, asyncHandler(verifySubscriptionPayment));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));
+router.get('/payments/pricing', requireAuth, asyncHandler(getPublicPricing));
+router.get('/payments/topup/config', requireAuth, asyncHandler(getTopUpConfigHandler));
+router.post('/payments/topup/order', requireAuth, asyncHandler(createTopUpOrder));
+router.post('/payments/topup/verify', requireAuth, asyncHandler(verifyTopUpPayment));
 
 router.post('/account/delete', requireAuth, asyncHandler(deleteAccount));
 

@@ -50,7 +50,13 @@ export interface ChatSessionStatus {
   isSubscriber: boolean;
 }
 
-export type SubscriptionStatus = 'active' | 'pending' | 'cancelled' | 'expired' | 'failed';
+export type SubscriptionStatus =
+  | 'active'
+  | 'pending'
+  | 'past_due'
+  | 'cancelled'
+  | 'expired'
+  | 'failed';
 
 export interface SubscriptionDoc {
   planId: string;
@@ -59,9 +65,11 @@ export interface SubscriptionDoc {
   razorpaySubscriptionId?: string;
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
+  graceUntil?: string;
+  lastPaymentFailureReason?: string;
 }
 
-export type PaymentPurpose = 'subscription' | 'report';
+export type PaymentPurpose = 'subscription' | 'report' | 'topup';
 export type PaymentStatus = 'created' | 'paid' | 'failed' | 'refunded';
 
 export interface PaymentDoc {

@@ -251,11 +251,23 @@ export default function ChatScreen() {
         />
 
         {error ? (
-          <Pressable onPress={() => router.push('/paywall')} style={styles.errorBanner}>
+          <View style={styles.errorBanner}>
             <AppText variant="bodySmall" color={colors.danger}>
               {error}
             </AppText>
-          </Pressable>
+            <View style={styles.errorActions}>
+              <Pressable onPress={() => router.push('/wallet/topup')}>
+                <AppText variant="label" color={colors.primary}>
+                  Top up
+                </AppText>
+              </Pressable>
+              <Pressable onPress={() => router.push('/paywall')}>
+                <AppText variant="label" color={colors.primary}>
+                  Upgrade
+                </AppText>
+              </Pressable>
+            </View>
+          </View>
         ) : null}
 
         {!isSubscriber && sessionExpiresAtMs !== null && !sessionExpired ? (
@@ -318,6 +330,11 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     backgroundColor: '#FCEBEB',
     borderRadius: radii.sm,
+    gap: spacing.xs,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: spacing.lg,
   },
   sessionBanner: {
     alignItems: 'center',

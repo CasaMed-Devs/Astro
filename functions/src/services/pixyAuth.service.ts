@@ -71,6 +71,7 @@ export async function pixyLogin(phoneNumber: string): Promise<PixyLoginResult> {
   const data = await callPixy<{ identification_token: string; otp: string }>('/login', {
     mobile_number: toBareMobileNumber(phoneNumber),
   });
+  console.log("pixy data", data)
 
   return { identificationToken: data.identification_token, otp: data.otp };
 }

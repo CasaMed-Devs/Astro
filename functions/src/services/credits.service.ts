@@ -6,6 +6,20 @@ import type { SubscriptionRecord, UserProfileRecord } from '../types';
 
 export const SESSION_DURATION_MS = 10 * 60 * 1000;
 
+/**
+ * A subscriber keeps unlimited access through the grace period after a
+ * failed renewal (subscription.halted), not just while fully 'active' — the
+ * point of the grace period is that access doesn't drop the moment a charge
+ * fails, only once graceUntil elapses without the scheduled job downgrading it.
+ */
+function hasUnlimitedAccess(subscription: SubscriptionRecord): boolean {
+  if (subscription.status === 'active') return true;
+  if (subscription.status === 'past_due') {
+    return !subscription.graceUntil || subscription.graceUntil.toMillis() > Date.now();
+  }
+  return false;
+}
+
 export interface SessionResult {
   sessionExpiresAt: string | null; // null when the caller has an unlimited-access subscription
   isNewSession: boolean;
@@ -45,7 +59,7 @@ export async function assertActiveOrStartSession(
     }
 
     const subscription = subscriptionSnapshot.data() as SubscriptionRecord | undefined;
-    if (subscription?.status === 'active') {
+    if (subscription && hasUnlimitedAccess(subscription)) {
       return { sessionExpiresAt: null, isNewSession: false, remainingCredits: null };
     }
 
@@ -106,7 +120,7 @@ export async function getSessionStatus(uid: string, chatId: string): Promise<Ses
   ]);
 
   const subscription = subscriptionSnapshot.data() as SubscriptionRecord | undefined;
-  if (subscription?.status === 'active') {
+  if (subscription && hasUnlimitedAccess(subscription)) {
     return { sessionActive: true, sessionExpiresAt: null, isSubscriber: true };
   }
 
@@ -125,4 +139,66 @@ export async function getRemainingCredits(uid: string): Promise<number | null> {
   const snapshot = await adminFirestore().collection('users').doc(uid).get();
   if (!snapshot.exists) return null;
   return (snapshot.data() as UserProfileRecord).credits ?? 0;
+}
+
+export interface CreditWalletResult {
+  creditsAwarded: number;
+  newBalance: number;
+  alreadyProcessed: boolean;
+}
+
+/**
+ * Credits a user's wallet (chat credits) after a verified top-up payment.
+ * Keyed by razorpayPaymentId as the payments doc id so duplicate calls (a
+ * retried /verify request or a redelivered webhook) never double-credit —
+ * the transaction reads the payment doc first and is a no-op if it exists.
+ */
+export async function creditWallet(
+  uid: string,
+  amountRupees: number,
+  razorpayPaymentId: string,
+  creditsPerRupee: number,
+): Promise<CreditWalletResult> {
+  const db = adminFirestore();
+  const userRef = db.collection('users').doc(uid);
+  const paymentRef = db.collection('payments').doc(razorpayPaymentId);
+
+  return db.runTransaction(async (transaction) => {
+    const [paymentSnapshot, userSnapshot] = await Promise.all([
+      transaction.get(paymentRef),
+      transaction.get(userRef),
+    ]);
+
+    if (!userSnapshot.exists) {
+      throw new NotFoundError('User profile not found.');
+    }
+
+    const currentCredits = (userSnapshot.data() as UserProfileRecord).credits ?? 0;
+
+    if (paymentSnapshot.exists) {
+      return { creditsAwarded: 0, newBalance: currentCredits, alreadyProcessed: true };
+    }
+
+    const creditsAwarded = Math.floor(amountRupees * creditsPerRupee);
+
+    transaction.update(userRef, {
+      credits: FieldValue.increment(creditsAwarded),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.set(paymentRef, {
+      userId: uid,
+      razorpayPaymentId,
+      purpose: 'topup',
+      amount: amountRupees, // Rupees, like every other stored/displayed amount in this app.
+      creditsAwarded,
+      status: 'paid',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      creditsAwarded,
+      newBalance: currentCredits + creditsAwarded,
+      alreadyProcessed: false,
+    };
+  });
 }

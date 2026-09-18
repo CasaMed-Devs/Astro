@@ -12,7 +12,8 @@ import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
 import {
   createSubscriptionOrder,
-  openRazorpayCheckout,
+  getPricing,
+  openRazorpaySubscriptionCheckout,
   verifySubscriptionPayment,
 } from '@/services/payment.service';
 import { colors, radii, spacing } from '@/constants/theme';
@@ -20,7 +21,10 @@ import { AppError } from '@/utils/errors';
 
 export default function PaywallScreen() {
   const { session } = useAuth();
-  const plan = getDefaultPlan();
+  const basePlan = getDefaultPlan();
+  const [price, setPrice] = useState<number | undefined>(undefined);
+  const [currency, setCurrency] = useState<string | undefined>(undefined);
+  const plan = { ...basePlan, price, currency };
   const pricingReady = plan.price != null && plan.currency != null;
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +36,28 @@ export default function PaywallScreen() {
       .catch(() => setAvatarPersonas([]));
   }, []);
 
+  useEffect(() => {
+    // Pricing is admin-editable (Firestore-backed, see admin-dashboard's
+    // Pricing page) — always reflect the live value here rather than a
+    // hardcoded local one.
+    getPricing()
+      .then((pricing) => {
+        setPrice(pricing.subscription.amount);
+        setCurrency(pricing.subscription.currency);
+      })
+      .catch(() => {
+        setPrice(undefined);
+        setCurrency(undefined);
+      });
+  }, []);
+
   const handleSubscribe = async () => {
     if (!pricingReady) return;
     setProcessing(true);
     setError(null);
     try {
-      const order = await createSubscriptionOrder(plan.id);
-      const result = await openRazorpayCheckout(order, {
+      const subscription = await createSubscriptionOrder(plan.id);
+      const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101 Plus',
         description: plan.name,
         contact: session?.phoneNumber ?? undefined,

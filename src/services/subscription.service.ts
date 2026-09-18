@@ -14,6 +14,16 @@ export function subscribeToSubscription(
   );
 }
 
+/**
+ * Mirrors the backend's grace-period rule (functions/src/services/credits.service.ts):
+ * a subscriber keeps unlimited access through the 3-day grace period after a
+ * failed renewal, not just while fully 'active'.
+ */
 export function isSubscriptionActive(subscription: SubscriptionDoc | null): boolean {
-  return subscription?.status === 'active';
+  if (!subscription) return false;
+  if (subscription.status === 'active') return true;
+  if (subscription.status === 'past_due') {
+    return !subscription.graceUntil || new Date(subscription.graceUntil).getTime() > Date.now();
+  }
+  return false;
 }

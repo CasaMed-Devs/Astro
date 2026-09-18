@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Crown, FileText, LogOut, Settings } from 'lucide-react-native';
+import { Crown, FileText, LogOut, Settings, Wallet } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Card } from '@/components/cards/Card';
@@ -34,6 +34,13 @@ export default function ProfileScreen() {
         <Crown size={20} color={colors.primary} />
         <AppText variant="body" style={styles.menuLabel}>
           {isActive ? 'Manage Astro101 Plus' : 'Upgrade to Astro101 Plus'}
+        </AppText>
+      </Pressable>
+
+      <Pressable style={styles.menuRow} onPress={() => router.push('/wallet/topup')}>
+        <Wallet size={20} color={colors.textSecondary} />
+        <AppText variant="body" style={styles.menuLabel}>
+          {profile?.credits ?? 0} credits — Top up wallet
         </AppText>
       </Pressable>
 

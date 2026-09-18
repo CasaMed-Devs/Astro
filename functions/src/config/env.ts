@@ -20,11 +20,11 @@ function normalizePrivateKey(raw: string | undefined): string | undefined {
  * corrupt. Prefer it when set; fall back to the raw/escaped key otherwise.
  */
 function resolvePrivateKey(): string | undefined {
-  const b64 = process.env.FIREBASE_PRIVATE_KEY_B64?.trim();
+  const b64 = process.env.SERVICE_ACCOUNT_PRIVATE_KEY_B64?.trim();
   if (b64) {
     return normalizePrivateKey(Buffer.from(b64, 'base64').toString('utf8'));
   }
-  return normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+  return normalizePrivateKey(process.env.SERVICE_ACCOUNT_PRIVATE_KEY);
 }
 
 /**
@@ -38,7 +38,7 @@ export const env = {
 
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    clientEmail: process.env.SERVICE_ACCOUNT_EMAIL,
     privateKey: resolvePrivateKey(),
   },
 
@@ -51,6 +51,9 @@ export const env = {
     keyId: process.env.RAZORPAY_KEY_ID,
     keySecret: process.env.RAZORPAY_KEY_SECRET,
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+    // Bootstrap fallback only — the source of truth is the admin-editable
+    // appConfig/paywallPricing.subscription.razorpayPlanId Firestore field.
+    planId: process.env.RAZORPAY_PLAN_ID,
   },
 
   ai: {
@@ -83,9 +86,24 @@ export const env = {
     testPhoneNumber: process.env.DEV_LOGIN_PHONE ?? '+911234567890',
   },
 
+  // All amounts in this file (reportPrice, topUp, and the Firestore-backed
+  // appConfig/paywallPricing doc they fall back to) are in whole Rupees, not
+  // paise. Razorpay's API requires paise — that conversion happens only at
+  // the single call site that talks to Razorpay (see rupeesToPaise in
+  // services/razorpay.service.ts), never anywhere else in the app.
   reportPrice: {
     amount: process.env.REPORT_PRICE_AMOUNT ? Number(process.env.REPORT_PRICE_AMOUNT) : undefined,
     currency: process.env.REPORT_PRICE_CURRENCY,
+  },
+
+  // Wallet top-up defaults, used until an admin sets appConfig/paywallPricing.topUp.
+  topUp: {
+    minAmount: process.env.TOPUP_MIN_AMOUNT ? Number(process.env.TOPUP_MIN_AMOUNT) : 50, // Rupees
+    maxAmount: process.env.TOPUP_MAX_AMOUNT ? Number(process.env.TOPUP_MAX_AMOUNT) : 5000, // Rupees
+    creditsPerRupee: process.env.TOPUP_CREDITS_PER_RUPEE
+      ? Number(process.env.TOPUP_CREDITS_PER_RUPEE)
+      : 1,
+    currency: process.env.TOPUP_CURRENCY ?? 'INR',
   },
 
   admin: {

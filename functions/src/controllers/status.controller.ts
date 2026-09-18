@@ -44,6 +44,8 @@ export async function getMySubscription(req: Request, res: Response): Promise<vo
     razorpaySubscriptionId: data.razorpaySubscriptionId,
     currentPeriodStart: serializeTimestamp(data.currentPeriodStart),
     currentPeriodEnd: serializeTimestamp(data.currentPeriodEnd),
+    graceUntil: serializeTimestamp(data.graceUntil),
+    lastPaymentFailureReason: data.lastPaymentFailureReason,
   });
 }
 

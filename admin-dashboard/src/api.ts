@@ -45,9 +45,22 @@ export interface PriceValue {
   currency?: string;
 }
 
+export interface SubscriptionPriceValue extends PriceValue {
+  razorpayPlanId?: string;
+}
+
+export interface TopUpConfigValue {
+  minAmount?: number;
+  maxAmount?: number;
+  creditsPerRupee?: number;
+  presetAmounts?: number[];
+  currency?: string;
+}
+
 export interface PricingResponse {
-  subscription: PriceValue;
+  subscription: SubscriptionPriceValue;
   report: PriceValue;
+  topUp: TopUpConfigValue;
 }
 
 export interface UserDetail {
@@ -80,8 +93,11 @@ export const api = {
     request<{ ok: true }>('/admin/astrologers/order', { method: 'PUT', body: { order } }),
 
   getPricing: () => request<PricingResponse>('/admin/pricing'),
-  updatePricing: (update: { subscription?: PriceValue; report?: PriceValue }) =>
-    request<{ ok: true }>('/admin/pricing', { method: 'PUT', body: update }),
+  updatePricing: (update: {
+    subscription?: SubscriptionPriceValue;
+    report?: PriceValue;
+    topUp?: TopUpConfigValue;
+  }) => request<{ ok: true }>('/admin/pricing', { method: 'PUT', body: update }),
 
   lookupUser: (phoneNumber: string) =>
     request<UserDetail>(`/admin/users/lookup?phoneNumber=${encodeURIComponent(phoneNumber)}`),

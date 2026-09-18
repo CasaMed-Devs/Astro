@@ -1,12 +1,13 @@
 import { InsufficientCreditsError, NotFoundError } from '../utils/errors';
 
 type FakeDoc = { exists: boolean; data: () => Record<string, unknown> };
-type Collection = 'users' | 'subscriptions' | 'personaChats';
+type Collection = 'users' | 'subscriptions' | 'personaChats' | 'payments';
 
 function makeFakeFirestore(
   users: Record<string, Record<string, unknown>>,
   subscriptions: Record<string, Record<string, unknown>>,
   personaChats: Record<string, Record<string, unknown>> = {},
+  payments: Record<string, Record<string, unknown>> = {},
 ) {
   const updates: { id: string; data: Record<string, unknown> }[] = [];
   const sets: { id: string; data: Record<string, unknown> }[] = [];
@@ -14,6 +15,7 @@ function makeFakeFirestore(
     users,
     subscriptions,
     personaChats,
+    payments,
   };
 
   const db = {
@@ -121,6 +123,52 @@ describe('assertActiveOrStartSession', () => {
 
     expect(result.isNewSession).toBe(false);
     expect(result.remainingCredits).toBe(5);
+    expect(updates).toHaveLength(0);
+    expect(sets).toHaveLength(0);
+  });
+});
+
+describe('creditWallet', () => {
+  it('throws NotFoundError when the user profile does not exist', async () => {
+    const { db } = makeFakeFirestore({}, {});
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { creditWallet } = await import('./credits.service');
+
+    await expect(creditWallet('uid1', 100, 'pay_1', 1)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('credits the wallet at the configured rate and records a payment ledger entry', async () => {
+    const { db, updates, sets } = makeFakeFirestore({ uid1: { credits: 5 } }, {});
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { creditWallet } = await import('./credits.service');
+
+    // Rs 100 at 1 credit per rupee = 100 credits.
+    const result = await creditWallet('uid1', 100, 'pay_1', 1);
+
+    expect(result).toEqual({ creditsAwarded: 100, newBalance: 105, alreadyProcessed: false });
+    expect(updates).toHaveLength(1);
+    expect(updates[0].id).toBe('uid1');
+    expect(sets).toHaveLength(1);
+    expect(sets[0].id).toBe('pay_1');
+    expect(sets[0].data.purpose).toBe('topup');
+  });
+
+  it('is a no-op when the same razorpayPaymentId was already processed (idempotent against retries/webhook redelivery)', async () => {
+    const { db, updates, sets } = makeFakeFirestore(
+      { uid1: { credits: 105 } },
+      {},
+      {},
+      { pay_1: { userId: 'uid1', purpose: 'topup', creditsAwarded: 100, status: 'paid' } },
+    );
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { creditWallet } = await import('./credits.service');
+
+    const result = await creditWallet('uid1', 100, 'pay_1', 1);
+
+    expect(result).toEqual({ creditsAwarded: 0, newBalance: 105, alreadyProcessed: true });
     expect(updates).toHaveLength(0);
     expect(sets).toHaveLength(0);
   });
