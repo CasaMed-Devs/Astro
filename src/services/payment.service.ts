@@ -2,6 +2,7 @@ import RazorpayCheckout from 'react-native-razorpay';
 
 import { apiClient } from '@/services/apiClient';
 import { AppError } from '@/utils/errors';
+import type { MandateDoc, MandateMethod } from '@/types/firestore';
 
 export interface PaymentOrder {
   orderId: string;
@@ -19,26 +20,17 @@ export interface VerifyPaymentInput {
   signature: string;
 }
 
-export interface SubscriptionCheckout {
-  subscriptionId: string;
-  keyId: string;
-}
-
-export interface VerifySubscriptionInput {
-  subscriptionId: string;
-  paymentId: string;
-  signature: string;
-}
-
 export interface PublicPricing {
-  subscription: { amount?: number; currency?: string };
+  trial: { amount: number; currency: string };
+  subscription: { amount: number; currency: string };
   report: { amount?: number; currency?: string };
+  rupeesPerCredit: number;
 }
 
 export interface TopUpConfig {
   minAmount: number; // Rupees
   maxAmount: number; // Rupees
-  creditsPerRupee: number;
+  rupeesPerCredit: number;
   presetAmounts: number[]; // Rupees
   currency: string;
 }
@@ -49,18 +41,45 @@ export interface TopUpResult {
   newBalance: number;
 }
 
+export interface StartRegistrationResult {
+  registrationLinkId: string;
+  shortUrl: string;
+}
+
+export interface UpgradeNowResult {
+  status: 'charged' | 'registration_required';
+  creditsAwarded?: number;
+  newBalance?: number;
+  registrationLinkId?: string;
+  shortUrl?: string;
+}
+
 export function getPricing(): Promise<PublicPricing> {
   return apiClient.get<PublicPricing>('/payments/pricing');
 }
 
-export function createSubscriptionOrder(planId: string): Promise<SubscriptionCheckout> {
-  return apiClient.post<SubscriptionCheckout>('/payments/subscription/order', { planId });
+export function getMandate(): Promise<MandateDoc> {
+  return apiClient.get<MandateDoc>('/mandate/me');
 }
 
-export function verifySubscriptionPayment(
-  input: VerifySubscriptionInput,
-): Promise<{ status: string }> {
-  return apiClient.post('/payments/subscription/verify', input);
+/**
+ * Starts the Rs.1 trial: registers a card/UPI auto-debit mandate. The
+ * returned `shortUrl` is a Razorpay-hosted page — open it in a browser
+ * (see openRegistrationLink below), then poll getMandate()/getMyProfile()
+ * for the webhook-confirmed result. No RazorpayCheckout.open() here; that
+ * SDK is only for order-based one-time payments (top-up/report).
+ */
+export function startTrialPayment(method: MandateMethod): Promise<StartRegistrationResult> {
+  return apiClient.post<StartRegistrationResult>('/payments/trial/start', { method });
+}
+
+/**
+ * "Subscribe Rs.299 now" — charges the existing mandate immediately, or (if
+ * no mandate exists yet) starts registration directly at the subscription
+ * amount, skipping the trial. `method` is required only in the latter case.
+ */
+export function upgradeNow(method?: MandateMethod): Promise<UpgradeNowResult> {
+  return apiClient.post<UpgradeNowResult>('/payments/subscription/upgrade-now', { method });
 }
 
 export function createReportOrder(): Promise<PaymentOrder> {
@@ -107,35 +126,6 @@ export async function openRazorpayCheckout(
 
     return {
       orderId: result.razorpay_order_id!,
-      paymentId: result.razorpay_payment_id,
-      signature: result.razorpay_signature,
-    };
-  } catch {
-    throw new AppError('payment/cancelled', 'Payment was cancelled or could not be completed.');
-  }
-}
-
-/**
- * Opens the Razorpay checkout UI for a real recurring Subscription (not a
- * one-time order) — passes subscription_id instead of order_id/amount, per
- * Razorpay's subscription-checkout contract.
- */
-export async function openRazorpaySubscriptionCheckout(
-  subscription: SubscriptionCheckout,
-  options: { name: string; description: string; contact?: string },
-): Promise<VerifySubscriptionInput> {
-  try {
-    const result = await RazorpayCheckout.open({
-      key: subscription.keyId,
-      subscription_id: subscription.subscriptionId,
-      name: options.name,
-      description: options.description,
-      prefill: options.contact ? { contact: options.contact } : undefined,
-      theme: { color: '#B25F0A' },
-    });
-
-    return {
-      subscriptionId: result.razorpay_subscription_id!,
       paymentId: result.razorpay_payment_id,
       signature: result.razorpay_signature,
     };

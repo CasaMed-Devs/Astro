@@ -6,18 +6,18 @@ import { createChat, getMessages, listPersonas, sendMessage } from '../controlle
 import { getTodayHoroscope } from '../controllers/horoscope.controller';
 import {
   createReportOrder,
-  createSubscriptionOrder,
   createTopUpOrder,
   getPublicPricing,
   getTopUpConfigHandler,
+  startTrialPayment,
+  upgradeNowHandler,
   verifyReportPayment,
-  verifySubscriptionPayment,
   verifyTopUpPayment,
 } from '../controllers/payment.controller';
 import { deleteAccount } from '../controllers/account.controller';
 import { devLogin, sendOtp, verifyOtpAndSignIn } from '../controllers/auth.controller';
 import { getMe, updateBirthDetails, updateDisplayName } from '../controllers/user.controller';
-import { getMyReport, getMySubscription, generateReport } from '../controllers/status.controller';
+import { getMyReport, getMyMandate, generateReport } from '../controllers/status.controller';
 import { autocomplete, resolve } from '../controllers/places.controller';
 import { adminRouter } from './admin.routes';
 import { env } from '../config/env';
@@ -44,7 +44,7 @@ router.get('/places/resolve', requireAuth, asyncHandler(resolve));
 
 router.get('/reports/me', requireAuth, asyncHandler(getMyReport));
 router.post('/reports/generate', requireAuth, asyncHandler(generateReport));
-router.get('/subscriptions/me', requireAuth, asyncHandler(getMySubscription));
+router.get('/mandate/me', requireAuth, asyncHandler(getMyMandate));
 
 router.get('/astrologers', asyncHandler(listPersonas));
 
@@ -52,8 +52,8 @@ router.post('/chats', requireAuth, asyncHandler(createChat));
 router.get('/chats/:chatId/messages', requireAuth, asyncHandler(getMessages));
 router.post('/chats/:chatId/messages', requireAuth, asyncHandler(sendMessage));
 
-router.post('/payments/subscription/order', requireAuth, asyncHandler(createSubscriptionOrder));
-router.post('/payments/subscription/verify', requireAuth, asyncHandler(verifySubscriptionPayment));
+router.post('/payments/trial/start', requireAuth, asyncHandler(startTrialPayment));
+router.post('/payments/subscription/upgrade-now', requireAuth, asyncHandler(upgradeNowHandler));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));
 router.get('/payments/pricing', requireAuth, asyncHandler(getPublicPricing));

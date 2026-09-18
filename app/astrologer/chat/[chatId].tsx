@@ -18,6 +18,7 @@ import { Input } from '@/components/forms/Input';
 import { Screen } from '@/components/common/Screen';
 import { ChatBubble } from '@/features/chat/components/ChatBubble';
 import { EmptyView } from '@/components/states/EmptyView';
+import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import { fetchOlderMessages, sendUserMessage, subscribeToMessages } from '@/services/chat.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
@@ -26,13 +27,6 @@ import { AppError } from '@/utils/errors';
 import type { ChatMessageDoc } from '@/types/firestore';
 
 const PARAGRAPH_REVEAL_MS = 1200;
-
-function formatRemaining(ms: number): string {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
 
 function parseContext(raw?: string): Record<string, string> | undefined {
   if (!raw) return undefined;
@@ -50,6 +44,7 @@ export default function ChatScreen() {
     context?: string;
     initialMessage?: string;
   }>();
+  const { profile } = useAuth();
   const [persona, setPersona] = useState<AstrologerProfile | null>(null);
   const [messages, setMessages] = useState<ChatMessageDoc[]>([]);
   // Our own outgoing message + the in-progress reveal of the astrologer's
@@ -63,15 +58,9 @@ export default function ChatScreen() {
   const [draft, setDraft] = useState(initialMessage ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Session-based billing: a chat session covers 10 minutes once a message
-  // starts one. `isSubscriber` never has a time limit. `sessionUnlocked` is
-  // the client-side confirmation gate after a session expires — tapping
-  // "start a new session" sets it so the composer re-enables; the next
-  // message sent is what actually starts (and charges for) the new session.
-  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
-  const [isSubscriber, setIsSubscriber] = useState(false);
-  const [sessionUnlocked, setSessionUnlocked] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  // No session/time window — access is purely "do you have credits."
+  // remainingCredits comes from the server after each message/list fetch.
+  const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
   const listRef = useRef<FlatList>(null);
   const extraContext = useRef(parseContext(context)).current;
   const insets = useSafeAreaInsets();
@@ -101,7 +90,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!chatId) return;
-    return subscribeToMessages(chatId, ({ messages: fetched, sessionStatus }) => {
+    return subscribeToMessages(chatId, ({ messages: fetched, remainingCredits: credits }) => {
       setMessages(fetched);
       if (fetched.length > 0) {
         setOldestSeq(Number(fetched[0].id));
@@ -112,23 +101,9 @@ export default function ChatScreen() {
           (local) => !fetched.some((m) => m.sender === local.sender && m.text === local.text),
         ),
       );
-      if (sessionStatus) {
-        setIsSubscriber(sessionStatus.isSubscriber);
-        setSessionExpiresAt(sessionStatus.sessionExpiresAt);
-      }
+      if (credits != null) setRemainingCredits(credits);
     });
   }, [chatId]);
-
-  // Ticks the countdown while a non-subscriber session is active.
-  useEffect(() => {
-    if (isSubscriber || !sessionExpiresAt) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [isSubscriber, sessionExpiresAt]);
-
-  const sessionExpiresAtMs = sessionExpiresAt ? new Date(sessionExpiresAt).getTime() : null;
-  const sessionExpired = !isSubscriber && sessionExpiresAtMs !== null && sessionExpiresAtMs <= now;
-  const locked = sessionExpired && !sessionUnlocked;
 
   const handleLoadOlder = async () => {
     if (oldestSeq == null || loadingOlder) return;
@@ -169,7 +144,7 @@ export default function ChatScreen() {
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || sending || locked) return;
+    if (!text || sending) return;
 
     const localId = `local-${Date.now()}`;
     setDraft('');
@@ -181,9 +156,7 @@ export default function ChatScreen() {
     ]);
     try {
       const result = await sendUserMessage(chatId, personaId, text, extraContext);
-      setSessionExpiresAt(result.sessionExpiresAt);
-      setSessionUnlocked(false);
-      setNow(Date.now());
+      setRemainingCredits(result.remainingCredits);
       revealParagraphs(result.paragraphs.length > 0 ? result.paragraphs : [result.reply]);
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m.id !== localId));
@@ -192,8 +165,6 @@ export default function ChatScreen() {
       setSending(false);
     }
   };
-
-  const handleStartNewSession = () => setSessionUnlocked(true);
 
   return (
     <Screen padded={false} edges={['top', 'bottom']}>
@@ -204,7 +175,14 @@ export default function ChatScreen() {
         {persona?.photoUrl ? (
           <Image source={{ uri: persona.photoUrl }} style={styles.headerAvatar} />
         ) : null}
-        <AppText variant="cardTitle">{persona?.name ?? 'Astrologer'}</AppText>
+        <AppText variant="cardTitle" style={styles.headerName}>
+          {persona?.name ?? 'Astrologer'}
+        </AppText>
+        {remainingCredits != null ? (
+          <AppText variant="caption" color={colors.textMuted}>
+            {remainingCredits} credits
+          </AppText>
+        ) : null}
       </View>
 
       <KeyboardAvoidingView
@@ -261,7 +239,11 @@ export default function ChatScreen() {
                   Top up
                 </AppText>
               </Pressable>
-              <Pressable onPress={() => router.push('/paywall')}>
+              <Pressable
+                onPress={() =>
+                  router.push(profile?.trialCreditsClaimed ? '/paywall/upgrade' : '/paywall')
+                }
+              >
                 <AppText variant="label" color={colors.primary}>
                   Upgrade
                 </AppText>
@@ -270,41 +252,23 @@ export default function ChatScreen() {
           </View>
         ) : null}
 
-        {!isSubscriber && sessionExpiresAtMs !== null && !sessionExpired ? (
-          <View style={styles.sessionBanner}>
-            <AppText variant="caption" color={colors.textMuted}>
-              Session: {formatRemaining(sessionExpiresAtMs - now)} left
-            </AppText>
-          </View>
-        ) : null}
-
-        {locked ? (
-          <View style={styles.composer}>
-            <Pressable onPress={handleStartNewSession} style={styles.newSessionButton}>
-              <AppText variant="label" color={colors.onGradientText}>
-                Session ended — Start a new session
-              </AppText>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.composer}>
-            <Input
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Type your question..."
-              containerStyle={styles.composerInput}
-              multiline
-              editable={!sending}
-            />
-            <Pressable
-              onPress={handleSend}
-              disabled={sending || !draft.trim()}
-              style={[styles.sendButton, (sending || !draft.trim()) && styles.sendButtonDisabled]}
-            >
-              <Send size={18} color={colors.onGradientText} />
-            </Pressable>
-          </View>
-        )}
+        <View style={styles.composer}>
+          <Input
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Type your question..."
+            containerStyle={styles.composerInput}
+            multiline
+            editable={!sending}
+          />
+          <Pressable
+            onPress={handleSend}
+            disabled={sending || !draft.trim()}
+            style={[styles.sendButton, (sending || !draft.trim()) && styles.sendButtonDisabled]}
+          >
+            <Send size={18} color={colors.onGradientText} />
+          </Pressable>
+        </View>
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -321,6 +285,7 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: spacing.xs },
   headerAvatar: { width: 36, height: 36, borderRadius: radii.md },
+  headerName: { flex: 1 },
   messageList: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, flexGrow: 1 },
   loadOlder: { alignItems: 'center', paddingVertical: spacing.sm },
   greetingRow: { marginTop: spacing.md },
@@ -335,17 +300,6 @@ const styles = StyleSheet.create({
   errorActions: {
     flexDirection: 'row',
     gap: spacing.lg,
-  },
-  sessionBanner: {
-    alignItems: 'center',
-    paddingBottom: spacing.xs,
-  },
-  newSessionButton: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    borderRadius: radii.sm,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
   },
   composer: {
     flexDirection: 'row',

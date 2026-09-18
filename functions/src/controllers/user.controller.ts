@@ -36,6 +36,11 @@ function serializeProfile(uid: string, data: UserProfileRecord & { createdAt?: T
     timezoneOffset: data.timezoneOffset,
     gender: data.gender,
     credits: data.credits ?? 0,
+    // Lets the app pick the right paywall (Rs.1 trial vs Rs.299 upgrade)
+    // without a second request. Razorpay customer/token ids are deliberately
+    // NOT serialized — they never leave the backend.
+    trialCreditsClaimed: data.trialCreditsClaimed ?? false,
+    mandateStatus: data.mandateStatus ?? 'none',
     createdAt: serializeTimestamp(data.createdAt),
     updatedAt: serializeTimestamp(data.updatedAt),
   };

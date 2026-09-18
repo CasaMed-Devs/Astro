@@ -1,10 +1,10 @@
-import type { ChatMessageDoc, ChatDoc, ChatSessionStatus } from '@/types/firestore';
+import type { ChatMessageDoc, ChatDoc } from '@/types/firestore';
 
 interface CachedChat {
   messages: ChatMessageDoc[];
   meta: ChatDoc;
   timestamp: number;
-  sessionStatus?: ChatSessionStatus;
+  remainingCredits?: number;
 }
 
 const CHAT_CACHE = new Map<string, CachedChat>();
@@ -35,13 +35,13 @@ export function setCachedChat(chatId: string, chat: ChatDoc, messages: ChatMessa
 export function updateCachedMessages(
   chatId: string,
   messages: ChatMessageDoc[],
-  sessionStatus?: ChatSessionStatus,
+  remainingCredits?: number,
 ): void {
   const cached = CHAT_CACHE.get(chatId);
   if (cached) {
     cached.messages = [...messages].sort((a, b) => Number(a.id) - Number(b.id));
     cached.timestamp = Date.now();
-    if (sessionStatus) cached.sessionStatus = sessionStatus;
+    if (remainingCredits != null) cached.remainingCredits = remainingCredits;
   }
 }
 

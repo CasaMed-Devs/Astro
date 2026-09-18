@@ -24,14 +24,6 @@ export function PersonaCard({ persona, onPress }: PersonaCardProps) {
           {persona.city}
         </AppText>
       </View>
-      <View style={styles.creditBadge}>
-        <AppText variant="cardTitle" color={colors.textPrimary}>
-          {persona.creditCostPerSession}
-        </AppText>
-        <AppText variant="caption" color={colors.textSecondary}>
-          credit{persona.creditCostPerSession > 1 ? 's' : ''}/session
-        </AppText>
-      </View>
     </Pressable>
   );
 }
@@ -47,5 +39,4 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 64, height: 64, borderRadius: radii.md },
   info: { flex: 1, gap: 2 },
-  creditBadge: { alignItems: 'flex-end' },
 });

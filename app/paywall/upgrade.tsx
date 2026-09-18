@@ -1,54 +1,53 @@
 import { useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Check, Crown, X } from 'lucide-react-native';
+import { Crown, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { getMandate, getPricing, startTrialPayment } from '@/services/payment.service';
+import { getMandate, getPricing, upgradeNow } from '@/services/payment.service';
 import { colors, radii, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 import type { MandateMethod } from '@/types/firestore';
 
-const FEATURES = [
-  '5 free credits the moment you set up auto-pay',
-  '1 credit = 1 message, same price with every astrologer',
-  'No time limits — chat as long as you have credits',
-];
-
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-export default function PaywallScreen() {
-  const { session, profile, refreshProfile } = useAuth();
+/**
+ * "Add credits" / early-upgrade screen. If the user already has an active
+ * auto-debit mandate (the normal case, after the Rs.1 trial), this charges
+ * Rs.299 immediately and restarts the 30-day cycle — cancelling whatever
+ * day-2/monthly charge was pending. If they somehow have no mandate at all
+ * (skipped the trial), this registers one directly at the subscription
+ * amount instead.
+ */
+export default function UpgradeScreen() {
+  const { profile, refreshProfile } = useAuth();
   const [amount, setAmount] = useState<number | undefined>(undefined);
   const [currency, setCurrency] = useState<string | undefined>(undefined);
+  const [hasMandate, setHasMandate] = useState<boolean | null>(null);
   const [method, setMethod] = useState<MandateMethod>('upi');
   const [processing, setProcessing] = useState(false);
-  const [waitingForConfirmation, setWaitingForConfirmation] = useState(false);
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successCredits, setSuccessCredits] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // A user who already set up their mandate has nothing to trial — send
-  // them to the Rs.299 "add credits" screen instead.
-  useEffect(() => {
-    if (profile?.trialCreditsClaimed) {
-      router.replace('/paywall/upgrade');
-    }
-  }, [profile?.trialCreditsClaimed]);
 
   useEffect(() => {
     getPricing()
       .then((pricing) => {
-        setAmount(pricing.trial.amount);
-        setCurrency(pricing.trial.currency);
+        setAmount(pricing.subscription.amount);
+        setCurrency(pricing.subscription.currency);
       })
       .catch(() => {
         setAmount(undefined);
         setCurrency(undefined);
       });
+    getMandate()
+      .then((mandate) => setHasMandate(mandate.mandateStatus === 'active'))
+      .catch(() => setHasMandate(false));
   }, []);
 
   useEffect(() => {
@@ -62,11 +61,11 @@ export default function PaywallScreen() {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
-    setWaitingForConfirmation(false);
+    setWaiting(false);
   };
 
-  const startPollingForConfirmation = () => {
-    setWaitingForConfirmation(true);
+  const startPollingForRegistration = () => {
+    setWaiting(true);
     const startedAt = Date.now();
 
     pollRef.current = setInterval(async () => {
@@ -77,7 +76,7 @@ export default function PaywallScreen() {
       }
       try {
         const mandate = await getMandate();
-        if (mandate.trialCreditsClaimed) {
+        if (mandate.mandateStatus === 'active') {
           stopPolling();
           await refreshProfile();
           router.back();
@@ -88,25 +87,51 @@ export default function PaywallScreen() {
     }, POLL_INTERVAL_MS);
   };
 
-  const handleStartTrial = async () => {
+  const handleSubscribe = async () => {
     setProcessing(true);
     setError(null);
     try {
-      const registration = await startTrialPayment(method);
-      await Linking.openURL(registration.shortUrl);
-      startPollingForConfirmation();
+      const result = await upgradeNow(hasMandate ? undefined : method);
+      if (result.status === 'charged') {
+        setSuccessCredits(result.creditsAwarded ?? 0);
+        await refreshProfile();
+      } else if (result.shortUrl) {
+        await Linking.openURL(result.shortUrl);
+        startPollingForRegistration();
+      }
     } catch (err) {
-      setError(err instanceof AppError ? err.message : 'Could not start the trial.');
+      setError(err instanceof AppError ? err.message : 'Could not complete the payment.');
     } finally {
       setProcessing(false);
     }
   };
 
-  const pricingReady = amount != null && currency != null;
+  // Closing this screen without paying routes to top-up instead, per the
+  // product decision — an alternative way to keep chatting right now.
+  const handleClose = () => router.replace('/wallet/topup');
+
+  if (successCredits != null) {
+    return (
+      <Screen>
+        <Pressable onPress={() => router.back()} style={styles.closeButton}>
+          <X size={18} color={colors.textPrimary} />
+        </Pressable>
+        <View style={styles.successContainer}>
+          <AppText variant="displayMd">You&apos;re all set</AppText>
+          <AppText variant="body" color={colors.textSecondary} style={styles.successBody}>
+            {successCredits} credits added. New balance: {profile?.credits ?? '—'} credits.
+          </AppText>
+          <Button label="Done" onPress={() => router.back()} />
+        </View>
+      </Screen>
+    );
+  }
+
+  const pricingReady = amount != null && currency != null && hasMandate !== null;
 
   return (
     <Screen scroll>
-      <Pressable onPress={() => router.back()} style={styles.closeButton}>
+      <Pressable onPress={handleClose} style={styles.closeButton}>
         <X size={18} color={colors.textPrimary} />
       </Pressable>
 
@@ -117,32 +142,17 @@ export default function PaywallScreen() {
             ASTRO101
           </AppText>
         </View>
-        <AppText variant="displayMd">Try it for {currency === 'INR' ? '₹' : ''}1</AppText>
+        <AppText variant="displayMd">Add {currency === 'INR' ? '₹' : ''}299 worth of credits</AppText>
         <AppText variant="bodySmall" color={colors.textSecondary}>
-          Set up auto-pay once, get 5 free credits instantly, and only ₹299 gets auto-debited
-          starting the next day — cancel anytime.
+          {hasMandate
+            ? 'This restarts your 30-day auto-debit cycle from today.'
+            : 'Set up auto-pay to charge this now and every 30 days after.'}
         </AppText>
-      </View>
-
-      <View style={styles.features}>
-        {FEATURES.map((feature) => (
-          <View key={feature} style={styles.featureRow}>
-            <Check size={16} color={colors.primary} />
-            <AppText variant="label" color={colors.textSecondary} style={styles.featureText}>
-              {feature}
-            </AppText>
-          </View>
-        ))}
       </View>
 
       {pricingReady ? (
         <View style={styles.priceCard}>
-          <View>
-            <AppText variant="cardTitle">Pay now</AppText>
-            <AppText variant="bodySmall" color={colors.textSecondary}>
-              Then ₹299/month auto-debit from day 2
-            </AppText>
-          </View>
+          <AppText variant="cardTitle">Pay now</AppText>
           <AppText variant="displayMd" color={colors.primaryDark}>
             {currency === 'INR' ? '₹' : ''}
             {amount}
@@ -150,28 +160,30 @@ export default function PaywallScreen() {
         </View>
       ) : (
         <View style={styles.priceCard}>
-          <AppText variant="cardTitle">Pricing coming soon</AppText>
+          <AppText variant="cardTitle">Loading...</AppText>
         </View>
       )}
 
-      <View style={styles.methodRow}>
-        <Pressable
-          style={[styles.methodChip, method === 'upi' && styles.methodChipActive]}
-          onPress={() => setMethod('upi')}
-        >
-          <AppText variant="label" color={method === 'upi' ? colors.onGradientText : colors.textPrimary}>
-            UPI Autopay
-          </AppText>
-        </Pressable>
-        <Pressable
-          style={[styles.methodChip, method === 'card' && styles.methodChipActive]}
-          onPress={() => setMethod('card')}
-        >
-          <AppText variant="label" color={method === 'card' ? colors.onGradientText : colors.textPrimary}>
-            Card
-          </AppText>
-        </Pressable>
-      </View>
+      {pricingReady && !hasMandate ? (
+        <View style={styles.methodRow}>
+          <Pressable
+            style={[styles.methodChip, method === 'upi' && styles.methodChipActive]}
+            onPress={() => setMethod('upi')}
+          >
+            <AppText variant="label" color={method === 'upi' ? colors.onGradientText : colors.textPrimary}>
+              UPI Autopay
+            </AppText>
+          </Pressable>
+          <Pressable
+            style={[styles.methodChip, method === 'card' && styles.methodChipActive]}
+            onPress={() => setMethod('card')}
+          >
+            <AppText variant="label" color={method === 'card' ? colors.onGradientText : colors.textPrimary}>
+              Card
+            </AppText>
+          </Pressable>
+        </View>
+      ) : null}
 
       {error ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
@@ -179,7 +191,7 @@ export default function PaywallScreen() {
         </AppText>
       ) : null}
 
-      {waitingForConfirmation ? (
+      {waiting ? (
         <AppText variant="bodySmall" color={colors.textSecondary} style={styles.error}>
           Waiting for payment confirmation... complete it in the browser tab that opened.
         </AppText>
@@ -187,14 +199,14 @@ export default function PaywallScreen() {
 
       <View style={styles.footer}>
         <Button
-          label="Start trial"
-          onPress={handleStartTrial}
-          loading={processing || waitingForConfirmation}
-          disabled={!pricingReady || !session}
+          label={hasMandate ? 'Subscribe now' : 'Set up auto-pay & subscribe'}
+          onPress={handleSubscribe}
+          loading={processing || waiting}
+          disabled={!pricingReady}
         />
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={handleClose}>
           <AppText variant="body" color={colors.textSecondary} style={styles.skipLabel}>
-            Not now
+            Top up instead
           </AppText>
         </Pressable>
       </View>
@@ -215,9 +227,6 @@ const styles = StyleSheet.create({
   },
   header: { gap: spacing.sm, marginTop: spacing.md },
   badge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  features: { gap: spacing.md, marginTop: spacing.xl },
-  featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  featureText: { flex: 1 },
   priceCard: {
     marginTop: spacing.xl,
     backgroundColor: colors.surface,
@@ -242,4 +251,6 @@ const styles = StyleSheet.create({
   error: { marginTop: spacing.md },
   footer: { marginTop: spacing.xl, marginBottom: spacing.xxl, gap: spacing.md },
   skipLabel: { textAlign: 'center' },
+  successContainer: { flex: 1, justifyContent: 'center', gap: spacing.md, alignItems: 'center' },
+  successBody: { textAlign: 'center' },
 });

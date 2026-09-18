@@ -1,4 +1,6 @@
 export type Gender = 'female' | 'male' | 'other';
+export type MandateMethod = 'card' | 'upi';
+export type MandateStatus = 'none' | 'pending' | 'active' | 'failed' | 'cancelled';
 
 export interface UserProfile {
   uid: string;
@@ -12,6 +14,8 @@ export interface UserProfile {
   timezoneOffset?: number;
   gender?: Gender;
   credits: number;
+  trialCreditsClaimed: boolean;
+  mandateStatus: MandateStatus;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -44,32 +48,17 @@ export interface ChatMessageDoc {
   meta?: ChatReplyMeta;
 }
 
-export interface ChatSessionStatus {
-  sessionActive: boolean;
-  sessionExpiresAt: string | null;
-  isSubscriber: boolean;
-}
-
-export type SubscriptionStatus =
-  | 'active'
-  | 'pending'
-  | 'past_due'
-  | 'cancelled'
-  | 'expired'
-  | 'failed';
-
-export interface SubscriptionDoc {
-  planId: string;
-  status: SubscriptionStatus;
-  razorpayCustomerId?: string;
-  razorpaySubscriptionId?: string;
-  currentPeriodStart?: string;
-  currentPeriodEnd?: string;
+export interface MandateDoc {
+  mandateStatus: MandateStatus;
+  mandateMethod: MandateMethod | null;
+  trialCreditsClaimed: boolean;
+  nextAutoDebitAt?: string;
+  nextAutoDebitAmount: number | null;
   graceUntil?: string;
-  lastPaymentFailureReason?: string;
+  lastPaymentFailureReason: string | null;
 }
 
-export type PaymentPurpose = 'subscription' | 'report' | 'topup';
+export type PaymentPurpose = 'trial' | 'autodebit' | 'direct_subscription' | 'report' | 'topup';
 export type PaymentStatus = 'created' | 'paid' | 'failed' | 'refunded';
 
 export interface PaymentDoc {

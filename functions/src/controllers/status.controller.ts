@@ -2,8 +2,9 @@ import type { Request, Response } from 'express';
 import type { Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
+import { generateAndStoreReport, markReportPending } from '../services/report.service';
 import { UnauthorizedError } from '../utils/errors';
-import type { ReportRecord, SubscriptionRecord } from '../types';
+import type { ReportRecord, UserProfileRecord } from '../types';
 
 function serializeTimestamp(value: Timestamp | undefined): string | undefined {
   return value?.toDate().toISOString();
@@ -27,29 +28,31 @@ export async function getMyReport(req: Request, res: Response): Promise<void> {
   });
 }
 
-export async function getMySubscription(req: Request, res: Response): Promise<void> {
+/**
+ * The user's auto-debit mandate state — what the paywall/upgrade screens use
+ * to decide between "start Rs.1 trial", "upgrade now", and "you're set".
+ * Never exposes the Razorpay customer/token ids to the client.
+ */
+export async function getMyMandate(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const snapshot = await adminFirestore().collection('subscriptions').doc(req.uid).get();
+  const snapshot = await adminFirestore().collection('users').doc(req.uid).get();
   if (!snapshot.exists) {
     res.json(null);
     return;
   }
 
-  const data = snapshot.data() as SubscriptionRecord;
+  const data = snapshot.data() as UserProfileRecord;
   res.json({
-    planId: data.planId,
-    status: data.status,
-    razorpayCustomerId: data.razorpayCustomerId,
-    razorpaySubscriptionId: data.razorpaySubscriptionId,
-    currentPeriodStart: serializeTimestamp(data.currentPeriodStart),
-    currentPeriodEnd: serializeTimestamp(data.currentPeriodEnd),
+    mandateStatus: data.mandateStatus ?? 'none',
+    mandateMethod: data.mandateMethod ?? null,
+    trialCreditsClaimed: data.trialCreditsClaimed ?? false,
+    nextAutoDebitAt: serializeTimestamp(data.nextAutoDebitAt),
+    nextAutoDebitAmount: data.nextAutoDebitAmount ?? null,
     graceUntil: serializeTimestamp(data.graceUntil),
-    lastPaymentFailureReason: data.lastPaymentFailureReason,
+    lastPaymentFailureReason: data.lastPaymentFailureReason ?? null,
   });
 }
-
-import { generateAndStoreReport, markReportPending } from '../services/report.service';
 
 export async function generateReport(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();

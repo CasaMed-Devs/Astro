@@ -7,6 +7,9 @@ export interface ChatMessageRecord {
 
 export type Gender = 'female' | 'male' | 'other';
 
+export type MandateMethod = 'card' | 'upi';
+export type MandateStatus = 'none' | 'pending' | 'active' | 'failed' | 'cancelled';
+
 export interface UserProfileRecord {
   uid: string;
   phoneNumber: string;
@@ -19,27 +22,20 @@ export interface UserProfileRecord {
   timezoneOffset?: number;
   gender?: Gender;
   credits: number;
-}
-
-export type SubscriptionStatus =
-  | 'active'
-  | 'pending'
-  | 'past_due'
-  | 'cancelled'
-  | 'expired'
-  | 'failed';
-
-export interface SubscriptionRecord {
-  planId: string;
-  status: SubscriptionStatus;
+  // One-time 5-credit trial gift, granted on the first successful Rs.1
+  // mandate registration — never granted again, even if the mandate is
+  // later cancelled and re-registered.
+  trialCreditsClaimed?: boolean;
   razorpayCustomerId?: string;
-  // The real Razorpay Subscription entity id (sub_xxx) once auto-recurring
-  // billing is active — not a one-time order/payment id.
-  razorpaySubscriptionId?: string;
-  currentPeriodStart?: FirebaseFirestore.Timestamp;
-  currentPeriodEnd?: FirebaseFirestore.Timestamp;
-  // Set when a renewal charge fails (subscription.halted webhook); access
-  // continues until this deadline, after which the scheduled job downgrades.
+  // The saved card/UPI mandate token used for auto-debit charges.
+  razorpayTokenId?: string;
+  mandateMethod?: MandateMethod;
+  mandateStatus?: MandateStatus;
+  // When the next scheduled auto-debit should fire (day-2 after the trial,
+  // then every 30 days thereafter).
+  nextAutoDebitAt?: FirebaseFirestore.Timestamp;
+  nextAutoDebitAmount?: number; // Rupees
+  // Set when an auto-debit charge fails; cleared on the next success.
   graceUntil?: FirebaseFirestore.Timestamp;
   lastPaymentFailureReason?: string;
 }

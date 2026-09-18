@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Layout } from '../components/Layout';
-import { api, ApiError, type PriceValue, type SubscriptionPriceValue, type TopUpConfigValue } from '../api';
+import {
+  api,
+  ApiError,
+  type CreditPricingValue,
+  type PriceValue,
+  type PricingUpdate,
+  type TopUpConfigValue,
+} from '../api';
 
 function PriceForm({
   title,
+  hint,
   buttonLabel,
   value,
   onSave,
 }: {
   title: string;
+  hint?: string;
   buttonLabel: string;
   value: PriceValue;
   onSave: (value: PriceValue) => Promise<void>;
@@ -47,6 +56,7 @@ function PriceForm({
           <input type="text" placeholder="INR" value={currency} onChange={(e) => setCurrency(e.target.value)} />
         </div>
       </div>
+      {hint ? <p className="hint">{hint}</p> : null}
       <button className="primary" onClick={handleSave} disabled={saving}>
         {saving ? 'Saving…' : buttonLabel}
       </button>
@@ -54,32 +64,26 @@ function PriceForm({
   );
 }
 
-function SubscriptionPriceForm({
+function CreditPriceForm({
   value,
   onSave,
 }: {
-  value: SubscriptionPriceValue;
-  onSave: (value: SubscriptionPriceValue) => Promise<void>;
+  value: CreditPricingValue;
+  onSave: (value: CreditPricingValue) => Promise<void>;
 }) {
-  const [amount, setAmount] = useState(value.amount != null ? String(value.amount) : '');
-  const [currency, setCurrency] = useState(value.currency ?? '');
-  const [razorpayPlanId, setRazorpayPlanId] = useState(value.razorpayPlanId ?? '');
+  const [rupeesPerCredit, setRupeesPerCredit] = useState(
+    value.rupeesPerCredit != null ? String(value.rupeesPerCredit) : '',
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setAmount(value.amount != null ? String(value.amount) : '');
-    setCurrency(value.currency ?? '');
-    setRazorpayPlanId(value.razorpayPlanId ?? '');
+    setRupeesPerCredit(value.rupeesPerCredit != null ? String(value.rupeesPerCredit) : '');
   }, [value]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave({
-        amount: amount ? Number(amount) : undefined,
-        currency: currency || undefined,
-        razorpayPlanId: razorpayPlanId || undefined,
-      });
+      await onSave({ rupeesPerCredit: rupeesPerCredit ? Number(rupeesPerCredit) : undefined });
     } finally {
       setSaving(false);
     }
@@ -87,34 +91,24 @@ function SubscriptionPriceForm({
 
   return (
     <div className="card">
-      <h2>Astro101 Plus (subscription)</h2>
-      <div className="field-pair">
-        <div className="field-row">
-          <label>Amount (Rupees) — for display only</label>
-          <input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </div>
-        <div className="field-row">
-          <label>Currency</label>
-          <input type="text" placeholder="INR" value={currency} onChange={(e) => setCurrency(e.target.value)} />
-        </div>
-        <div className="field-row">
-          <label>Razorpay Plan ID (auto-recurring billing)</label>
-          <input
-            type="text"
-            placeholder="plan_xxxxxxxxxxxxxx"
-            value={razorpayPlanId}
-            onChange={(e) => setRazorpayPlanId(e.target.value)}
-          />
-        </div>
+      <h2>Price of 1 credit</h2>
+      <div className="field-row">
+        <label>Rupees per credit</label>
+        <input
+          type="number"
+          min={0.01}
+          step={0.01}
+          value={rupeesPerCredit}
+          onChange={(e) => setRupeesPerCredit(e.target.value)}
+        />
       </div>
       <p className="hint">
-        Create or change the plan (and its price) in the Razorpay Dashboard under Subscriptions →
-        Plans, then paste the resulting plan_xxx ID here. The Amount/Currency fields above are only
-        used to display the price in the app — the actual charge amount is whatever the Razorpay
-        Plan is configured for.
+        The one number behind all credit economics. Every chat message costs exactly 1 credit, for
+        every astrologer. A top-up of Rs.X grants X ÷ (this number) credits; the Rs.299 auto-debit
+        grants 299 ÷ (this number) credits. Changes apply instantly to everyone.
       </p>
       <button className="primary" onClick={handleSave} disabled={saving}>
-        Save subscription plan
+        {saving ? 'Saving…' : 'Save credit price'}
       </button>
     </div>
   );
@@ -129,9 +123,6 @@ function TopUpForm({
 }) {
   const [minAmount, setMinAmount] = useState(value.minAmount != null ? String(value.minAmount) : '');
   const [maxAmount, setMaxAmount] = useState(value.maxAmount != null ? String(value.maxAmount) : '');
-  const [creditsPerRupee, setCreditsPerRupee] = useState(
-    value.creditsPerRupee != null ? String(value.creditsPerRupee) : '',
-  );
   const [presetAmounts, setPresetAmounts] = useState(
     value.presetAmounts ? value.presetAmounts.join(', ') : '',
   );
@@ -141,7 +132,6 @@ function TopUpForm({
   useEffect(() => {
     setMinAmount(value.minAmount != null ? String(value.minAmount) : '');
     setMaxAmount(value.maxAmount != null ? String(value.maxAmount) : '');
-    setCreditsPerRupee(value.creditsPerRupee != null ? String(value.creditsPerRupee) : '');
     setPresetAmounts(value.presetAmounts ? value.presetAmounts.join(', ') : '');
     setCurrency(value.currency ?? '');
   }, [value]);
@@ -152,7 +142,6 @@ function TopUpForm({
       await onSave({
         minAmount: minAmount ? Number(minAmount) : undefined,
         maxAmount: maxAmount ? Number(maxAmount) : undefined,
-        creditsPerRupee: creditsPerRupee ? Number(creditsPerRupee) : undefined,
         presetAmounts: presetAmounts
           ? presetAmounts
               .split(',')
@@ -179,16 +168,6 @@ function TopUpForm({
           <input type="number" min={1} value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} />
         </div>
         <div className="field-row">
-          <label>Credits per rupee</label>
-          <input
-            type="number"
-            min={0.01}
-            step={0.01}
-            value={creditsPerRupee}
-            onChange={(e) => setCreditsPerRupee(e.target.value)}
-          />
-        </div>
-        <div className="field-row">
           <label>Preset amounts (Rupees, comma-separated)</label>
           <input
             type="text"
@@ -203,8 +182,8 @@ function TopUpForm({
         </div>
       </div>
       <p className="hint">
-        Amounts are in whole Rupees. Minimum/maximum are enforced on both the app and the server —
-        the wallet balance is redeemable only inside the app, never withdrawable or transferable.
+        Amounts are whole Rupees. Minimum/maximum are enforced on both the app and the server — the
+        wallet balance is redeemable only inside the app, never withdrawable or transferable.
       </p>
       <button className="primary" onClick={handleSave} disabled={saving}>
         {saving ? 'Saving…' : 'Save top-up settings'}
@@ -214,7 +193,9 @@ function TopUpForm({
 }
 
 export function PricingPage() {
-  const [subscription, setSubscription] = useState<SubscriptionPriceValue>({});
+  const [creditPricing, setCreditPricing] = useState<CreditPricingValue>({});
+  const [trialAmount, setTrialAmount] = useState<PriceValue>({});
+  const [subscriptionAmount, setSubscriptionAmount] = useState<PriceValue>({});
   const [report, setReport] = useState<PriceValue>({});
   const [topUp, setTopUp] = useState<TopUpConfigValue>({});
   const [banner, setBanner] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
@@ -224,7 +205,9 @@ export function PricingPage() {
     api
       .getPricing()
       .then((data) => {
-        setSubscription(data.subscription);
+        setCreditPricing(data.creditPricing);
+        setTrialAmount(data.trialAmount);
+        setSubscriptionAmount(data.subscriptionAmount);
         setReport(data.report);
         setTopUp(data.topUp);
       })
@@ -232,9 +215,9 @@ export function PricingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const save = async (key: 'subscription' | 'report' | 'topUp', value: PriceValue | TopUpConfigValue) => {
+  const save = async (update: PricingUpdate) => {
     try {
-      await api.updatePricing({ [key]: value });
+      await api.updatePricing(update);
       setBanner({ kind: 'success', text: 'Saved.' });
     } catch (err) {
       setBanner({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to save.' });
@@ -248,14 +231,28 @@ export function PricingPage() {
         <div className="centered-loading">Loading…</div>
       ) : (
         <>
-          <SubscriptionPriceForm value={subscription} onSave={(v) => save('subscription', v)} />
+          <CreditPriceForm value={creditPricing} onSave={(v) => save({ creditPricing: v })} />
+          <PriceForm
+            title="Trial (mandate registration charge)"
+            hint="Charged once when a new user sets up auto-debit. Grants 5 free credits the first time only. The day-2 auto-debit is then the subscription amount below."
+            buttonLabel="Save trial amount"
+            value={trialAmount}
+            onSave={(v) => save({ trialAmount: v })}
+          />
+          <PriceForm
+            title="Subscription (recurring auto-debit)"
+            hint="Charged automatically on day 2 after the trial, then every 30 days, against the user's saved card/UPI mandate. Also what 'Subscribe now' charges immediately."
+            buttonLabel="Save subscription amount"
+            value={subscriptionAmount}
+            onSave={(v) => save({ subscriptionAmount: v })}
+          />
           <PriceForm
             title="Kundali report (one-time unlock)"
             buttonLabel="Save report price"
             value={report}
-            onSave={(v) => save('report', v)}
+            onSave={(v) => save({ report: v })}
           />
-          <TopUpForm value={topUp} onSave={(v) => save('topUp', v)} />
+          <TopUpForm value={topUp} onSave={(v) => save({ topUp: v })} />
         </>
       )}
     </Layout>

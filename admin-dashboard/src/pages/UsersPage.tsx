@@ -55,24 +55,31 @@ export function UsersPage() {
       </div>
 
       {user ? (
-        <div className="card">
-          <h2>Profile</h2>
-          <Row label="UID" value={user.uid} />
-          <Row label="Phone number" value={user.phoneNumber} />
-          <Row label="Name" value={user.name} />
-          <Row label="Gender" value={user.gender} />
-          <Row label="Date of birth" value={user.dateOfBirth} />
-          <Row label="Time of birth" value={user.timeOfBirth} />
-          <Row label="Place of birth" value={user.placeOfBirth} />
-          <Row label="Credits" value={user.credits} />
-          <Row label="Subscription status" value={user.subscription ? user.subscription.status : 'none'} />
-          <Row
-            label="Subscription period end"
-            value={user.subscription ? user.subscription.currentPeriodEnd : '—'}
-          />
-          <Row label="Report status" value={user.report ? user.report.status : 'none'} />
-          <Row label="Created" value={user.createdAt} />
-        </div>
+        <>
+          <div className="card">
+            <h2>Profile</h2>
+            <Row label="UID" value={user.uid} />
+            <Row label="Phone number" value={user.phoneNumber} />
+            <Row label="Name" value={user.name} />
+            <Row label="Gender" value={user.gender} />
+            <Row label="Date of birth" value={user.dateOfBirth} />
+            <Row label="Time of birth" value={user.timeOfBirth} />
+            <Row label="Place of birth" value={user.placeOfBirth} />
+            <Row label="Credits" value={user.credits} />
+            <Row label="Report status" value={user.report ? user.report.status : 'none'} />
+            <Row label="Created" value={user.createdAt} />
+          </div>
+          <div className="card">
+            <h2>Auto-debit mandate</h2>
+            <Row label="Status" value={user.mandate.status} />
+            <Row label="Method" value={user.mandate.method} />
+            <Row label="Trial credits claimed" value={user.mandate.trialCreditsClaimed ? 'yes' : 'no'} />
+            <Row label="Next auto-debit at" value={user.mandate.nextAutoDebitAt} />
+            <Row label="Next auto-debit amount (Rs.)" value={user.mandate.nextAutoDebitAmount} />
+            <Row label="Grace period until" value={user.mandate.graceUntil} />
+            <Row label="Last payment failure" value={user.mandate.lastPaymentFailureReason} />
+          </div>
+        </>
       ) : null}
     </Layout>
   );

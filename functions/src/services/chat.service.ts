@@ -1,11 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getCreditCostPerSession } from './personaConfig.service';
 import { listConversationMessages, sendChatMessage } from './personaApi.service';
 import type { PersonaChatMeta } from './personaApi.service';
-import { assertActiveOrStartSession, getSessionStatus } from './credits.service';
-import type { SessionStatus } from './credits.service';
+import { deductMessageCredit, getRemainingCredits } from './credits.service';
 import {
   NotFoundError,
   PersonaConversationNotFoundError,
@@ -95,11 +93,16 @@ export interface HandleUserMessageResult {
   reply: string;
   paragraphs: string[];
   meta?: PersonaChatMeta;
-  remainingCredits: number | null;
-  sessionExpiresAt: string | null;
-  isNewSession: boolean;
+  remainingCredits: number;
 }
 
+/**
+ * Every message costs exactly 1 credit, deducted up front — same rate for
+ * every astrologer, no session/time window. Deduct-then-send means a failed
+ * send still costs the credit; this matches the old session model's
+ * charge-before-serve behavior and keeps the check atomic against concurrent
+ * sends (no risk of two in-flight messages both passing a balance check).
+ */
 export async function handleUserMessage(
   uid: string,
   chatId: string,
@@ -109,8 +112,7 @@ export async function handleUserMessage(
 ): Promise<HandleUserMessageResult> {
   await requireOwnedChat(uid, chatId);
 
-  const creditCostPerSession = await getCreditCostPerSession(profileId);
-  const session = await assertActiveOrStartSession(uid, chatId, creditCostPerSession);
+  const { remainingCredits } = await deductMessageCredit(uid);
 
   const mergedContext = await buildContextForUser(uid, context);
   const result = await sendChatMessage({
@@ -125,9 +127,7 @@ export async function handleUserMessage(
     reply: result.reply.text,
     paragraphs: result.reply.paragraphs,
     meta: result.meta,
-    remainingCredits: session.remainingCredits,
-    sessionExpiresAt: session.sessionExpiresAt,
-    isNewSession: session.isNewSession,
+    remainingCredits,
   };
 }
 
@@ -142,7 +142,7 @@ export interface ListMessagesResult {
   messages: ChatMessageResponse[];
   hasMore: boolean;
   nextCursor: number | null;
-  sessionStatus: SessionStatus;
+  remainingCredits: number;
 }
 
 export async function listMessages(
@@ -152,7 +152,7 @@ export async function listMessages(
 ): Promise<ListMessagesResult> {
   await requireOwnedChat(uid, chatId);
 
-  const sessionStatus = await getSessionStatus(uid, chatId);
+  const remainingCredits = (await getRemainingCredits(uid)) ?? 0;
 
   try {
     const page = await listConversationMessages(chatId, opts);
@@ -165,13 +165,13 @@ export async function listMessages(
       })),
       hasMore: page.has_more,
       nextCursor: page.next_cursor,
-      sessionStatus,
+      remainingCredits,
     };
   } catch (error) {
     // A brand-new chat has no vendor-side conversation until the first
     // message is sent — that's an empty history, not an error.
     if (error instanceof PersonaConversationNotFoundError) {
-      return { messages: [], hasMore: false, nextCursor: null, sessionStatus };
+      return { messages: [], hasMore: false, nextCursor: null, remainingCredits };
     }
     throw error;
   }

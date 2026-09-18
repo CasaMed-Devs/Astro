@@ -6,7 +6,6 @@ import { login, logout, session } from '../controllers/admin/auth.controller';
 import {
   listAstrologers,
   updateAstrologerOrder,
-  updateAstrologerPrice,
 } from '../controllers/admin/astrologers.controller';
 import { getPricing, updatePricing } from '../controllers/admin/pricing.controller';
 import { getUserByUid, lookupUserByPhone } from '../controllers/admin/users.controller';
@@ -18,7 +17,6 @@ adminRouter.post('/logout', requireAdminAuth, asyncHandler(logout));
 adminRouter.get('/session', requireAdminAuth, asyncHandler(session));
 
 adminRouter.get('/astrologers', requireAdminAuth, asyncHandler(listAstrologers));
-adminRouter.patch('/astrologers/:profileId', requireAdminAuth, asyncHandler(updateAstrologerPrice));
 adminRouter.put('/astrologers/order', requireAdminAuth, asyncHandler(updateAstrologerOrder));
 
 adminRouter.get('/pricing', requireAdminAuth, asyncHandler(getPricing));

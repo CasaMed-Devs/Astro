@@ -6,5 +6,5 @@ const app = createApp();
 
 export const api = onRequest({ region: 'asia-south1', invoker: 'public' }, app);
 
-export { checkExpiredSubscriptions } from './scheduled/subscriptionExpiry';
+export { processAutoDebits } from './scheduled/processAutoDebits';
 export { onUserCreated } from './triggers/onUserCreated';

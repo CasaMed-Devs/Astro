@@ -96,7 +96,6 @@ export default function AstrologerDetailScreen() {
 
   const unfilledInputs = missingInputs.filter((input) => !inputValues[input.key]?.trim());
   const canStart = unfilledInputs.length === 0;
-  const sessionCredits = persona?.creditCostPerSession ?? 0;
 
   if (loading) {
     return (
@@ -166,9 +165,9 @@ export default function AstrologerDetailScreen() {
             </AppText>
           </View>
           <View style={styles.priceRow}>
-            <AppText style={styles.priceText}>{sessionCredits}</AppText>
+            <AppText style={styles.priceText}>1</AppText>
             <AppText variant="bodySmall" color={colors.textSecondary}>
-              credit{sessionCredits === 1 ? '' : 's'} / 10-min session
+              credit / message
             </AppText>
           </View>
         </View>
@@ -196,12 +195,11 @@ export default function AstrologerDetailScreen() {
       </View>
 
       {activeTab === 'Profile' ? (
-        <ProfileSection persona={persona} sessionCredits={sessionCredits} />
+        <ProfileSection persona={persona} />
       ) : activeTab === 'Report' ? (
         <ReportSection persona={persona} />
       ) : (
         <TalkSection
-          sessionCredits={sessionCredits}
           missingInputs={missingInputs}
           inputValues={inputValues}
           onChangeInput={(key, value) => setInputValues((prev) => ({ ...prev, [key]: value }))}
@@ -215,13 +213,7 @@ export default function AstrologerDetailScreen() {
   );
 }
 
-function ProfileSection({
-  persona,
-  sessionCredits,
-}: {
-  persona: AstrologerProfile;
-  sessionCredits: number;
-}) {
+function ProfileSection({ persona }: { persona: AstrologerProfile }) {
   return (
     <>
       <InfoCard title="About">
@@ -232,10 +224,7 @@ function ProfileSection({
 
       <InfoCard title="Persona">
         <KeyValue label="Years in astrology" value={FALLBACK_PROFILE.yearsInAstrology} />
-        <KeyValue
-          label="Charges"
-          value={`${sessionCredits} credit${sessionCredits === 1 ? '' : 's'} / 10-min session`}
-        />
+        <KeyValue label="Charges" value="1 credit / message" />
         <KeyValue label="Languages" value={FALLBACK_PROFILE.languages} />
         <KeyValue label="Based in" value={persona.city || FALLBACK_PROFILE.basedIn} />
       </InfoCard>
@@ -303,7 +292,6 @@ function ReportSection({ persona }: { persona: AstrologerProfile }) {
 }
 
 function TalkSection({
-  sessionCredits,
   missingInputs,
   inputValues,
   onChangeInput,
@@ -312,7 +300,6 @@ function TalkSection({
   onStartChat,
   starting,
 }: {
-  sessionCredits: number;
   missingInputs: RequiredInput[];
   inputValues: Record<string, string>;
   onChangeInput: (key: string, value: string) => void;
@@ -321,21 +308,17 @@ function TalkSection({
   onStartChat: () => void;
   starting: boolean;
 }) {
-  const creditLabel = `${sessionCredits} credit${sessionCredits === 1 ? '' : 's'}`;
-
   return (
     <>
-      <InfoCard title="Session Pricing">
+      <InfoCard title="Pricing">
         <AppText variant="body" style={styles.paragraph}>
-          Pay <AppText style={styles.inlineHighlight}>{creditLabel}</AppText> to start a 10-minute
-          chat session. Send as many messages as you like within that window — no per-message
-          charges. Once the 10 minutes are up, start a new session to keep chatting.
+          Every message costs <AppText style={styles.inlineHighlight}>1 credit</AppText>, with no
+          time limit — chat for as long as you like, whenever you like.
         </AppText>
       </InfoCard>
 
       <InfoCard title="Payment Summary">
-        <KeyValue label="Session length" value="10 minutes" />
-        <KeyValue label="Payable now" value={creditLabel} highlight />
+        <KeyValue label="Cost per message" value="1 credit" highlight />
       </InfoCard>
 
       {missingInputs.length > 0 ? (
@@ -357,7 +340,7 @@ function TalkSection({
       ) : null}
 
       <Button
-        label={`Pay ${creditLabel} & start chat`}
+        label="Start chatting"
         onPress={onStartChat}
         loading={starting}
         disabled={!canStart}
@@ -365,7 +348,7 @@ function TalkSection({
       />
 
       <AppText variant="caption" color={colors.textSecondary} style={styles.secureText}>
-        Secure payment · Charged once per 10-minute session
+        1 credit is deducted each time you send a message
       </AppText>
     </>
   );

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { api, ApiError, type Astrologer } from '../api';
 
 export function AstrologersPage() {
   const [astrologers, setAstrologers] = useState<Astrologer[]>([]);
-  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const dragFromIndex = useRef<number | null>(null);
@@ -15,9 +15,6 @@ export function AstrologersPage() {
     try {
       const data = await api.listAstrologers();
       setAstrologers(data.astrologers);
-      setPriceDrafts(
-        Object.fromEntries(data.astrologers.map((a) => [a.id, String(a.creditCostPerSession)])),
-      );
     } catch (err) {
       setBanner({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to load.' });
     } finally {
@@ -29,23 +26,6 @@ export function AstrologersPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const savePrice = async (astrologer: Astrologer) => {
-    const value = Number(priceDrafts[astrologer.id]);
-    if (!Number.isFinite(value) || value < 1) {
-      setBanner({ kind: 'error', text: 'Price must be a positive number.' });
-      return;
-    }
-    try {
-      await api.updateAstrologerPrice(astrologer.id, value);
-      setAstrologers((prev) =>
-        prev.map((a) => (a.id === astrologer.id ? { ...a, creditCostPerSession: value } : a)),
-      );
-      setBanner({ kind: 'success', text: `${astrologer.name}'s price saved.` });
-    } catch (err) {
-      setBanner({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to save.' });
-    }
-  };
 
   const handleDrop = async (toIndex: number) => {
     const fromIndex = dragFromIndex.current;
@@ -70,10 +50,12 @@ export function AstrologersPage() {
     <Layout>
       {banner ? <div className={banner.kind === 'error' ? 'error-banner' : 'success-banner'}>{banner.text}</div> : null}
       <div className="card">
-        <h2>Astrologers &amp; session pricing</h2>
+        <h2>Astrologers</h2>
         <p className="hint">
           Drag rows to reorder — this order is what users see in the app. Name/photo come from the
-          astrologer vendor and can&apos;t be edited here; the credit price is ours.
+          astrologer vendor and can&apos;t be edited here. Every astrologer costs the same: 1 credit
+          per message. The Rupee price of a credit is set globally on the{' '}
+          <Link to="/pricing">Pricing page</Link>.
         </p>
         {loading ? (
           <div className="centered-loading">Loading…</div>
@@ -110,18 +92,6 @@ export function AstrologersPage() {
                   {a.tagline}
                   {a.city ? ` · ${a.city}` : ''}
                 </div>
-              </div>
-              <div className="price">
-                <input
-                  type="number"
-                  min={1}
-                  value={priceDrafts[a.id] ?? ''}
-                  onChange={(e) => setPriceDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                />
-                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>credits / 10-min session</span>
-                <button className="small" onClick={() => savePrice(a)}>
-                  Save
-                </button>
               </div>
             </div>
           ))

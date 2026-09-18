@@ -100,70 +100,120 @@ export function verifyPaymentSignature(input: VerifySignatureInput): void {
   }
 }
 
-export interface CreatedSubscription {
-  subscriptionId: string;
-  keyId: string;
+// 10 years — Razorpay requires an expiry on a mandate; this just means
+// "don't expire it on us", not a real subscription term.
+const MANDATE_EXPIRE_AT = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 60;
+// Upper bound Razorpay enforces per auto-debit under this mandate.
+const MANDATE_MAX_AMOUNT_RUPEES = 500;
+
+export interface RazorpayCustomerRef {
+  customerId: string;
 }
 
 /**
- * Creates a real Razorpay Subscription against an existing Plan (created in
- * the Razorpay dashboard). total_count is a required upper bound on Razorpay's
- * side, not a real expiry — 120 monthly cycles (~10 years) is used to mean
- * "renew until cancelled".
+ * Gets-or-creates a Razorpay Customer for this user, keyed by phone number.
+ * fail_existing:0 makes Razorpay return the existing customer instead of
+ * erroring if one with the same contact already exists — needed since a
+ * user might restart the trial flow (e.g. app reinstall) without us having
+ * their customer id cached yet.
  */
-export async function createSubscription(
-  planId: string,
+export async function getOrCreateCustomer(
+  phoneNumber: string,
   notes?: Record<string, string>,
-): Promise<CreatedSubscription> {
+): Promise<RazorpayCustomerRef> {
   const client = getClient();
-  const subscription = await client.subscriptions.create({
-    plan_id: planId,
-    total_count: 120,
-    customer_notify: 1,
+  const customer = await client.customers.create({
+    contact: phoneNumber,
+    fail_existing: 0,
     notes,
   });
-  return { subscriptionId: subscription.id, keyId: env.razorpay.keyId! };
+  return { customerId: customer.id };
 }
 
-export async function fetchSubscription(subscriptionId: string) {
-  const client = getClient();
-  return client.subscriptions.fetch(subscriptionId);
-}
-
-export async function cancelSubscription(subscriptionId: string, cancelAtCycleEnd = false) {
-  const client = getClient();
-  return client.subscriptions.cancel(subscriptionId, cancelAtCycleEnd);
-}
-
-export interface VerifySubscriptionSignatureInput {
-  subscriptionId: string;
-  paymentId: string;
-  signature: string;
+export interface CreatedRegistration {
+  registrationLinkId: string;
+  shortUrl: string;
+  customerId: string;
 }
 
 /**
- * Razorpay's subscription-checkout signature scheme differs from the
- * order-payment one: HMAC-SHA256(payment_id + '|' + subscription_id,
- * key_secret), not order_id + payment_id.
+ * Registers a recurring mandate (card or UPI Autopay) via Razorpay's
+ * Recurring Payments "registration link" product — distinct from the rigid
+ * Plan+cycle Subscriptions API. The user completes the hosted `shortUrl` to
+ * pay the authorization amount and grant the mandate; Razorpay confirms via
+ * the `payment.captured`/`token.confirmed` webhooks (see webhook.controller.ts),
+ * which is the source of truth — this call only kicks the flow off.
  */
-export function verifySubscriptionSignature(input: VerifySubscriptionSignatureInput): void {
-  if (!env.razorpay.keySecret) {
-    throw new RazorpayNotConfiguredError();
+export async function createRecurringRegistration(
+  customerId: string,
+  authorizationAmountRupees: number,
+  method: 'card' | 'upi',
+  notes?: Record<string, string>,
+): Promise<CreatedRegistration> {
+  const client = getClient();
+  const link = await client.subscriptions.createRegistrationLink({
+    customer_id: customerId,
+    type: 'link',
+    amount: rupeesToPaise(authorizationAmountRupees),
+    currency: 'INR',
+    description: 'Astro101 recurring mandate setup',
+    subscription_registration: {
+      method,
+      max_amount: rupeesToPaise(MANDATE_MAX_AMOUNT_RUPEES),
+      expire_at: MANDATE_EXPIRE_AT,
+    },
+    notes,
+  } as unknown as Parameters<Razorpay['subscriptions']['createRegistrationLink']>[0]);
+
+  return {
+    registrationLinkId: link.id,
+    shortUrl: (link as unknown as { short_url: string }).short_url,
+    customerId,
+  };
+}
+
+/**
+ * Charges an already-registered mandate (card or UPI) for an arbitrary
+ * amount at a time of our choosing — this is what the day-2 and monthly
+ * auto-debit scheduler calls, and what "upgrade now" uses to charge
+ * immediately. Two-step per Razorpay's Recurring Payments contract: create a
+ * plain order tied to the customer, then create a payment against it using
+ * the saved token with recurring:1 (no customer present, no checkout UI).
+ */
+export async function chargeRecurringToken(
+  customerId: string,
+  tokenId: string,
+  amountRupees: number,
+  receipt: string,
+  contact: string,
+  notes?: Record<string, string>,
+): Promise<{ paymentId: string; orderId: string }> {
+  const client = getClient();
+  const order = await client.orders.create({
+    amount: rupeesToPaise(amountRupees),
+    currency: 'INR',
+    receipt,
+    customer_id: customerId,
+    notes,
+  } as unknown as Parameters<Razorpay['orders']['create']>[0]);
+
+  const payment = await client.payments.createRecurringPayment({
+    amount: rupeesToPaise(amountRupees),
+    currency: 'INR',
+    order_id: order.id,
+    customer_id: customerId,
+    token: tokenId,
+    recurring: 1,
+    email: `${customerId}@auto-debit.astro101.app`,
+    contact,
+    notes: notes ?? {},
+  });
+
+  if (!payment.razorpay_payment_id) {
+    throw new PaymentVerificationError('Recurring charge did not return a payment id.');
   }
 
-  const expected = createHmac('sha256', env.razorpay.keySecret)
-    .update(`${input.paymentId}|${input.subscriptionId}`)
-    .digest('hex');
-
-  const expectedBuffer = Buffer.from(expected, 'hex');
-  const actualBuffer = Buffer.from(input.signature, 'hex');
-
-  if (
-    expectedBuffer.length !== actualBuffer.length ||
-    !timingSafeEqual(expectedBuffer, actualBuffer)
-  ) {
-    throw new PaymentVerificationError();
-  }
+  return { paymentId: payment.razorpay_payment_id, orderId: order.id };
 }
 
 export function verifyWebhookSignature(rawBody: string, signature: string): void {

@@ -23,9 +23,10 @@ export async function deleteAccount(req: Request, res: Response): Promise<void> 
     }),
   );
 
+  // Mandate state lives on the user doc itself, so deleting it also drops
+  // the saved Razorpay token reference — no separate subscription doc.
   await Promise.all([
     db.collection('users').doc(uid).delete(),
-    db.collection('subscriptions').doc(uid).delete(),
     db.collection('reports').doc(uid).delete(),
   ]);
 

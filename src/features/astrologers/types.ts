@@ -17,6 +17,4 @@ export interface AstrologerProfile {
   greeting: string;
   openers: string[];
   requiredInputs: RequiredInput[];
-  /** Credits deducted from a free-tier user's balance to start a 10-minute chat session with this persona. */
-  creditCostPerSession: number;
 }

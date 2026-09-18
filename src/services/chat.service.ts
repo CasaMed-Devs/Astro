@@ -1,5 +1,5 @@
 import { apiClient } from '@/services/apiClient';
-import type { ChatMessageDoc, ChatDoc, ChatReplyMeta, ChatSessionStatus } from '@/types/firestore';
+import type { ChatMessageDoc, ChatDoc, ChatReplyMeta } from '@/types/firestore';
 import { pollFor } from '@/utils/poll';
 import { toAppError } from '@/utils/errors';
 import {
@@ -25,7 +25,7 @@ interface ListMessagesResponse {
   messages: ChatMessageResponse[];
   hasMore: boolean;
   nextCursor: number | null;
-  sessionStatus: ChatSessionStatus;
+  remainingCredits: number;
 }
 
 interface ChatCreateResponse {
@@ -56,7 +56,7 @@ export async function getOrCreateChat(personaId: string): Promise<string> {
 
 export interface MessagesUpdate {
   messages: ChatMessageDoc[];
-  sessionStatus: ChatSessionStatus | null;
+  remainingCredits: number | null;
 }
 
 export function subscribeToMessages(
@@ -65,15 +65,15 @@ export function subscribeToMessages(
 ): () => void {
   const cached = getCachedChat(chatId);
   if (cached) {
-    callback({ messages: cached.messages, sessionStatus: cached.sessionStatus ?? null });
+    callback({ messages: cached.messages, remainingCredits: cached.remainingCredits ?? null });
   }
 
   return pollFor(
     async () => {
       const result = await apiClient.get<ListMessagesResponse>(`/chats/${chatId}/messages`);
       const messages = result.messages.map(toDoc);
-      updateCachedMessages(chatId, messages, result.sessionStatus);
-      return { messages, sessionStatus: result.sessionStatus };
+      updateCachedMessages(chatId, messages, result.remainingCredits);
+      return { messages, remainingCredits: result.remainingCredits };
     },
     callback,
     MESSAGES_POLL_INTERVAL_MS,
@@ -111,9 +111,7 @@ export interface SendMessageResult {
   reply: string;
   paragraphs: string[];
   meta?: ChatReplyMeta;
-  remainingCredits: number | null;
-  sessionExpiresAt: string | null;
-  isNewSession: boolean;
+  remainingCredits: number;
 }
 
 export async function sendUserMessage(

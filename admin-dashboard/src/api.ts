@@ -36,31 +36,51 @@ export interface Astrologer {
   tagline?: string;
   city?: string;
   photoUrl: string;
-  creditCostPerSession: number;
   sortOrder: number;
 }
 
+/** All amounts are whole Rupees. */
 export interface PriceValue {
   amount?: number;
   currency?: string;
 }
 
-export interface SubscriptionPriceValue extends PriceValue {
-  razorpayPlanId?: string;
+export interface CreditPricingValue {
+  /** "The price of 1 credit" — one global number; cost per message is a fixed 1 credit. */
+  rupeesPerCredit?: number;
 }
 
 export interface TopUpConfigValue {
   minAmount?: number;
   maxAmount?: number;
-  creditsPerRupee?: number;
   presetAmounts?: number[];
   currency?: string;
 }
 
 export interface PricingResponse {
-  subscription: SubscriptionPriceValue;
+  creditPricing: CreditPricingValue;
+  trialAmount: PriceValue;
+  subscriptionAmount: PriceValue;
   report: PriceValue;
   topUp: TopUpConfigValue;
+}
+
+export interface PricingUpdate {
+  creditPricing?: CreditPricingValue;
+  trialAmount?: PriceValue;
+  subscriptionAmount?: PriceValue;
+  report?: PriceValue;
+  topUp?: TopUpConfigValue;
+}
+
+export interface MandateDetail {
+  status: 'none' | 'pending' | 'active' | 'failed' | 'cancelled';
+  method: 'card' | 'upi' | null;
+  trialCreditsClaimed: boolean;
+  nextAutoDebitAt?: string;
+  nextAutoDebitAmount: number | null;
+  graceUntil?: string;
+  lastPaymentFailureReason: string | null;
 }
 
 export interface UserDetail {
@@ -74,7 +94,7 @@ export interface UserDetail {
   credits: number;
   createdAt?: string;
   updatedAt?: string;
-  subscription: { planId: string; status: string; currentPeriodStart?: string; currentPeriodEnd?: string } | null;
+  mandate: MandateDetail;
   report: { status: string; generatedAt?: string } | null;
 }
 
@@ -84,20 +104,12 @@ export const api = {
   session: () => request<{ ok: true }>('/admin/session'),
 
   listAstrologers: () => request<{ astrologers: Astrologer[] }>('/admin/astrologers'),
-  updateAstrologerPrice: (profileId: string, creditCostPerSession: number) =>
-    request<{ ok: true }>(`/admin/astrologers/${encodeURIComponent(profileId)}`, {
-      method: 'PATCH',
-      body: { creditCostPerSession },
-    }),
   updateAstrologerOrder: (order: string[]) =>
     request<{ ok: true }>('/admin/astrologers/order', { method: 'PUT', body: { order } }),
 
   getPricing: () => request<PricingResponse>('/admin/pricing'),
-  updatePricing: (update: {
-    subscription?: SubscriptionPriceValue;
-    report?: PriceValue;
-    topUp?: TopUpConfigValue;
-  }) => request<{ ok: true }>('/admin/pricing', { method: 'PUT', body: update }),
+  updatePricing: (update: PricingUpdate) =>
+    request<{ ok: true }>('/admin/pricing', { method: 'PUT', body: update }),
 
   lookupUser: (phoneNumber: string) =>
     request<UserDetail>(`/admin/users/lookup?phoneNumber=${encodeURIComponent(phoneNumber)}`),

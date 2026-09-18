@@ -1,7 +1,13 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 
-import { getServerPlan, getReportPrice, getTopUpConfig } from '../../config/plans';
+import {
+  getReportPrice,
+  getRupeesPerCredit,
+  getSubscriptionAmount,
+  getTopUpConfig,
+  getTrialAmount,
+} from '../../config/plans';
 import { setPaywallPricing } from '../../services/paywallPricing.service';
 
 const priceSchema = z.object({
@@ -9,37 +15,38 @@ const priceSchema = z.object({
   currency: z.string().min(1).optional(),
 });
 
-const subscriptionPriceSchema = priceSchema.extend({
-  razorpayPlanId: z.string().min(1).optional(),
+const creditPricingSchema = z.object({
+  rupeesPerCredit: z.number().positive().optional(),
 });
 
 const topUpSchema = z.object({
   minAmount: z.number().int().positive().optional(),
   maxAmount: z.number().int().positive().optional(),
-  creditsPerRupee: z.number().positive().optional(),
   presetAmounts: z.array(z.number().int().positive()).optional(),
   currency: z.string().min(1).optional(),
 });
 
 const updatePricingSchema = z.object({
-  subscription: subscriptionPriceSchema.optional(),
+  creditPricing: creditPricingSchema.optional(),
+  trialAmount: priceSchema.optional(),
+  subscriptionAmount: priceSchema.optional(),
   report: priceSchema.optional(),
   topUp: topUpSchema.optional(),
 });
 
 export async function getPricing(_req: Request, res: Response): Promise<void> {
-  const [subscription, report, topUp] = await Promise.all([
-    getServerPlan('astro101-plus-monthly'),
+  const [rupeesPerCredit, trialAmount, subscriptionAmount, report, topUp] = await Promise.all([
+    getRupeesPerCredit(),
+    getTrialAmount(),
+    getSubscriptionAmount(),
     getReportPrice(),
     getTopUpConfig(),
   ]);
 
   res.json({
-    subscription: {
-      amount: subscription?.amount,
-      currency: subscription?.currency,
-      razorpayPlanId: subscription?.razorpayPlanId,
-    },
+    creditPricing: { rupeesPerCredit },
+    trialAmount,
+    subscriptionAmount,
     report,
     topUp,
   });

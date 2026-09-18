@@ -6,7 +6,6 @@ import { Crown, Sparkles } from 'lucide-react-native';
 import { AppText } from '@/components/common/AppText';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { useSubscription } from '@/features/payments/context/SubscriptionProvider';
 import { PersonaCard } from '@/features/astrologers/components/PersonaCard';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
@@ -14,7 +13,6 @@ import { colors, radii, spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
   const { profile } = useAuth();
-  const { isActive } = useSubscription();
   const [astrologers, setAstrologers] = useState<AstrologerProfile[]>([]);
 
   useEffect(() => {
@@ -35,20 +33,21 @@ export default function HomeScreen() {
       <View style={styles.creditsCard}>
         <View>
           <AppText variant="caption" color={colors.textSecondary}>
-            {isActive ? 'Astro101 Plus' : 'Free messages left'}
+            Credits
           </AppText>
           <AppText variant="displayMd" color={colors.primary}>
-            {isActive ? 'Unlimited' : (profile?.credits ?? 0)}
+            {profile?.credits ?? 0}
           </AppText>
         </View>
-        {!isActive && (
-          <Pressable style={styles.upsellButton} onPress={() => router.push('/paywall')}>
-            <Crown size={16} color={colors.onGradientText} />
-            <AppText variant="buttonLabel" color={colors.onGradientText}>
-              Go Plus
-            </AppText>
-          </Pressable>
-        )}
+        <Pressable
+          style={styles.upsellButton}
+          onPress={() => router.push(profile?.trialCreditsClaimed ? '/paywall/upgrade' : '/paywall')}
+        >
+          <Crown size={16} color={colors.onGradientText} />
+          <AppText variant="buttonLabel" color={colors.onGradientText}>
+            {profile?.trialCreditsClaimed ? 'Add credits' : 'Try for Re.1'}
+          </AppText>
+        </Pressable>
       </View>
 
       <View style={styles.sectionHeader}>

@@ -51,9 +51,6 @@ export const env = {
     keyId: process.env.RAZORPAY_KEY_ID,
     keySecret: process.env.RAZORPAY_KEY_SECRET,
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
-    // Bootstrap fallback only — the source of truth is the admin-editable
-    // appConfig/paywallPricing.subscription.razorpayPlanId Firestore field.
-    planId: process.env.RAZORPAY_PLAN_ID,
   },
 
   ai: {
@@ -86,11 +83,11 @@ export const env = {
     testPhoneNumber: process.env.DEV_LOGIN_PHONE ?? '+911234567890',
   },
 
-  // All amounts in this file (reportPrice, topUp, and the Firestore-backed
-  // appConfig/paywallPricing doc they fall back to) are in whole Rupees, not
-  // paise. Razorpay's API requires paise — that conversion happens only at
-  // the single call site that talks to Razorpay (see rupeesToPaise in
-  // services/razorpay.service.ts), never anywhere else in the app.
+  // All amounts in this file (reportPrice, topUp, trial/subscription, and the
+  // Firestore-backed appConfig/paywallPricing doc they fall back to) are in
+  // whole Rupees, not paise. Razorpay's API requires paise — that conversion
+  // happens only at the single call site that talks to Razorpay (see
+  // rupeesToPaise in services/razorpay.service.ts), never anywhere else.
   reportPrice: {
     amount: process.env.REPORT_PRICE_AMOUNT ? Number(process.env.REPORT_PRICE_AMOUNT) : undefined,
     currency: process.env.REPORT_PRICE_CURRENCY,
@@ -100,10 +97,24 @@ export const env = {
   topUp: {
     minAmount: process.env.TOPUP_MIN_AMOUNT ? Number(process.env.TOPUP_MIN_AMOUNT) : 50, // Rupees
     maxAmount: process.env.TOPUP_MAX_AMOUNT ? Number(process.env.TOPUP_MAX_AMOUNT) : 5000, // Rupees
-    creditsPerRupee: process.env.TOPUP_CREDITS_PER_RUPEE
-      ? Number(process.env.TOPUP_CREDITS_PER_RUPEE)
-      : 1,
     currency: process.env.TOPUP_CURRENCY ?? 'INR',
+  },
+
+  // Single global "price of 1 credit" — drives top-up conversion and how
+  // many credits a mandate charge grants. Admin-editable via the dashboard.
+  creditPricing: {
+    rupeesPerCredit: process.env.RUPEES_PER_CREDIT ? Number(process.env.RUPEES_PER_CREDIT) : 1,
+  },
+
+  // The Rs.1 trial mandate-registration charge and the Rs.299 recurring
+  // auto-debit amount, both admin-editable via appConfig/paywallPricing.
+  trialAmount: {
+    amount: process.env.TRIAL_AMOUNT ? Number(process.env.TRIAL_AMOUNT) : 1,
+    currency: process.env.TRIAL_CURRENCY ?? 'INR',
+  },
+  subscriptionAmount: {
+    amount: process.env.SUBSCRIPTION_AMOUNT ? Number(process.env.SUBSCRIPTION_AMOUNT) : 299,
+    currency: process.env.SUBSCRIPTION_CURRENCY ?? 'INR',
   },
 
   admin: {

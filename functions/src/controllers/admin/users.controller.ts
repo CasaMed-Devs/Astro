@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { adminFirestore } from '../../config/firebase-admin';
 import { NotFoundError } from '../../utils/errors';
 import { uidForPhoneNumber } from '../../utils/uid';
-import type { ReportRecord, SubscriptionRecord, UserProfileRecord } from '../../types';
+import type { ReportRecord, UserProfileRecord } from '../../types';
 
 function serializeTimestamp(value: Timestamp | undefined): string | undefined {
   return value?.toDate().toISOString();
@@ -13,9 +13,8 @@ function serializeTimestamp(value: Timestamp | undefined): string | undefined {
 
 async function fetchUserDetail(uid: string) {
   const db = adminFirestore();
-  const [userSnap, subscriptionSnap, reportSnap] = await Promise.all([
+  const [userSnap, reportSnap] = await Promise.all([
     db.collection('users').doc(uid).get(),
-    db.collection('subscriptions').doc(uid).get(),
     db.collection('reports').doc(uid).get(),
   ]);
 
@@ -25,8 +24,6 @@ async function fetchUserDetail(uid: string) {
     createdAt?: Timestamp;
     updatedAt?: Timestamp;
   };
-  const subscription = subscriptionSnap.data() as
-    (SubscriptionRecord & { updatedAt?: Timestamp }) | undefined;
   const report = reportSnap.data() as (ReportRecord & { generatedAt?: Timestamp }) | undefined;
 
   return {
@@ -40,14 +37,17 @@ async function fetchUserDetail(uid: string) {
     credits: user.credits ?? 0,
     createdAt: serializeTimestamp(user.createdAt),
     updatedAt: serializeTimestamp(user.updatedAt),
-    subscription: subscription
-      ? {
-          planId: subscription.planId,
-          status: subscription.status,
-          currentPeriodStart: serializeTimestamp(subscription.currentPeriodStart),
-          currentPeriodEnd: serializeTimestamp(subscription.currentPeriodEnd),
-        }
-      : null,
+    // Auto-debit mandate state. Razorpay customer/token ids are deliberately
+    // not exposed, even to admins.
+    mandate: {
+      status: user.mandateStatus ?? 'none',
+      method: user.mandateMethod ?? null,
+      trialCreditsClaimed: user.trialCreditsClaimed ?? false,
+      nextAutoDebitAt: serializeTimestamp(user.nextAutoDebitAt),
+      nextAutoDebitAmount: user.nextAutoDebitAmount ?? null,
+      graceUntil: serializeTimestamp(user.graceUntil),
+      lastPaymentFailureReason: user.lastPaymentFailureReason ?? null,
+    },
     report: report
       ? {
           status: report.status,

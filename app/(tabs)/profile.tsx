@@ -6,12 +6,10 @@ import { AppText } from '@/components/common/AppText';
 import { Card } from '@/components/cards/Card';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { useSubscription } from '@/features/payments/context/SubscriptionProvider';
 import { colors, radii, spacing } from '@/constants/theme';
 
 export default function ProfileScreen() {
   const { profile, signOut } = useAuth();
-  const { isActive } = useSubscription();
 
   return (
     <Screen scroll>
@@ -30,10 +28,13 @@ export default function ProfileScreen() {
         <ProfileRow label="Place of birth" value={profile?.placeOfBirth ?? '—'} />
       </Card>
 
-      <Pressable style={styles.menuRow} onPress={() => router.push('/paywall')}>
+      <Pressable
+        style={styles.menuRow}
+        onPress={() => router.push(profile?.trialCreditsClaimed ? '/paywall/upgrade' : '/paywall')}
+      >
         <Crown size={20} color={colors.primary} />
         <AppText variant="body" style={styles.menuLabel}>
-          {isActive ? 'Manage Astro101 Plus' : 'Upgrade to Astro101 Plus'}
+          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : 'Try Astro101 for Re.1'}
         </AppText>
       </Pressable>
 

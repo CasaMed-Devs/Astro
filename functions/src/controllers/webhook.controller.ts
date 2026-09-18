@@ -3,31 +3,48 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore, adminMessaging } from '../config/firebase-admin';
 import { verifyWebhookSignature } from '../services/razorpay.service';
+import { completeMandateRegistration } from '../services/mandate.service';
 import { PaymentVerificationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
 
-const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
-interface RazorpaySubscriptionEntity {
+interface RazorpayPaymentEntity {
   id: string;
+  token_id?: string | null;
+  customer_id?: string | null;
   notes?: Record<string, string>;
-  current_start?: number | null;
-  current_end?: number | null;
+  error_description?: string | null;
+}
+
+interface RazorpayTokenEntity {
+  id: string;
+  customer_id?: string | null;
+  notes?: Record<string, string>;
 }
 
 interface RazorpayWebhookPayload {
   event: string;
   payload: {
-    payment?: { entity: { id: string; notes?: Record<string, string> } };
-    subscription?: { entity: RazorpaySubscriptionEntity };
+    payment?: { entity: RazorpayPaymentEntity };
+    token?: { entity: RazorpayTokenEntity };
   };
 }
 
 /**
- * Handles Razorpay webhook events (subscription lifecycle, failed
- * payments). Requires the raw request body — see app.ts, which mounts
- * this route with express.raw() instead of the global JSON parser so the
- * signature can be verified against the exact bytes Razorpay sent.
+ * Handles Razorpay webhook events for the custom recurring engine (mandate
+ * registration + auto-debit charges). Requires the raw request body — see
+ * app.ts, which mounts this route with express.raw() so the signature can
+ * be verified against the exact bytes Razorpay sent.
+ *
+ * Event contract (Razorpay Recurring Payments): a registration completes
+ * with `payment.captured` carrying a `token_id`, and separately
+ * `token.confirmed`. We treat `payment.captured` + `token_id` + our
+ * `purpose` note as the registration-complete signal (it carries everything
+ * we need in one event); `token.confirmed` is handled as a fallback for the
+ * same transition. Subsequent auto-debits we initiate ourselves are credited
+ * synchronously in mandate.service.ts, so their `payment.captured` is a
+ * no-op here; `payment.failed` on an auto-debit opens the grace period.
  */
 export async function handleRazorpayWebhook(req: Request, res: Response): Promise<void> {
   const signature = req.headers['x-razorpay-signature'];
@@ -39,96 +56,52 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   verifyWebhookSignature(rawBody, signature);
 
   const payload = JSON.parse(rawBody) as RazorpayWebhookPayload;
-  const notes = payload.payload.payment?.entity.notes ?? payload.payload.subscription?.entity.notes;
+  const payment = payload.payload.payment?.entity;
+  const token = payload.payload.token?.entity;
+  const notes = payment?.notes ?? token?.notes;
   const uid = notes?.uid;
+  const purpose = notes?.purpose;
 
   if (uid) {
-    const db = adminFirestore();
-    const now = FieldValue.serverTimestamp();
-    const subscriptionEntity = payload.payload.subscription?.entity;
-
     switch (payload.event) {
-      case 'subscription.activated':
-        await db.collection('subscriptions').doc(uid).set(
-          {
-            status: 'active',
-            razorpaySubscriptionId: subscriptionEntity?.id,
-            graceUntil: FieldValue.delete(),
-            updatedAt: now,
-          },
-          { merge: true },
-        );
+      case 'payment.captured': {
+        const isRegistration = purpose === 'trial' || purpose === 'direct_subscription';
+        if (isRegistration && payment?.token_id) {
+          await completeMandateRegistration(uid, payment.token_id, payment.id, purpose);
+        }
         break;
+      }
 
-      case 'subscription.charged': {
-        const update: Record<string, unknown> = {
-          status: 'active',
-          razorpaySubscriptionId: subscriptionEntity?.id,
-          graceUntil: FieldValue.delete(),
-          updatedAt: now,
-        };
-        if (subscriptionEntity?.current_start) {
-          update.currentPeriodStart = Timestamp.fromMillis(subscriptionEntity.current_start * 1000);
+      case 'token.confirmed': {
+        // Fallback path if the registration's payment.captured arrived
+        // without a token_id (or was missed): the token event alone still
+        // lets us activate the mandate. completeMandateRegistration is
+        // idempotent, keyed by the id we pass, so double-handling is safe.
+        const isRegistration = purpose === 'trial' || purpose === 'direct_subscription';
+        if (isRegistration && token) {
+          await completeMandateRegistration(uid, token.id, `token_${token.id}`, purpose);
         }
-        if (subscriptionEntity?.current_end) {
-          update.currentPeriodEnd = Timestamp.fromMillis(subscriptionEntity.current_end * 1000);
-        }
-        await db.collection('subscriptions').doc(uid).set(update, { merge: true });
+        break;
+      }
 
-        // Idempotent ledger entry for the renewal charge, keyed by payment id.
-        const paymentId = payload.payload.payment?.entity.id;
-        if (paymentId) {
-          await db
-            .collection('payments')
-            .doc(paymentId)
+      case 'payment.failed': {
+        if (purpose === 'autodebit') {
+          await adminFirestore()
+            .collection('users')
+            .doc(uid)
             .set(
               {
-                userId: uid,
-                razorpaySubscriptionId: subscriptionEntity?.id,
-                razorpayPaymentId: paymentId,
-                purpose: 'subscription',
-                status: 'paid',
-                createdAt: now,
+                graceUntil: Timestamp.fromMillis(Date.now() + GRACE_PERIOD_MS),
+                lastPaymentFailureReason:
+                  payment?.error_description ?? 'Auto-debit payment failed.',
+                updatedAt: FieldValue.serverTimestamp(),
               },
               { merge: true },
             );
+          await sendAutoDebitFailedNotification(uid);
         }
         break;
       }
-
-      case 'subscription.halted': {
-        const graceUntil = Timestamp.fromMillis(Date.now() + GRACE_PERIOD_MS);
-        await db.collection('subscriptions').doc(uid).set(
-          {
-            status: 'past_due',
-            graceUntil,
-            lastPaymentFailureReason: 'Renewal payment failed (subscription.halted).',
-            updatedAt: now,
-          },
-          { merge: true },
-        );
-        await sendRenewalFailedNotification(uid);
-        break;
-      }
-
-      case 'subscription.cancelled':
-        await db
-          .collection('subscriptions')
-          .doc(uid)
-          .set({ status: 'cancelled', updatedAt: now }, { merge: true });
-        break;
-
-      case 'subscription.completed':
-        await db
-          .collection('subscriptions')
-          .doc(uid)
-          .set({ status: 'expired', updatedAt: now }, { merge: true });
-        break;
-
-      case 'payment.failed':
-        // Only relevant to non-subscription orders (top-up/report); the
-        // subscription case is handled via subscription.halted above.
-        break;
 
       default:
         break;
@@ -138,7 +111,7 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   res.status(200).json({ received: true });
 }
 
-async function sendRenewalFailedNotification(uid: string): Promise<void> {
+async function sendAutoDebitFailedNotification(uid: string): Promise<void> {
   const userSnapshot = await adminFirestore().collection('users').doc(uid).get();
   if (!userSnapshot.exists) return;
 
@@ -149,8 +122,8 @@ async function sendRenewalFailedNotification(uid: string): Promise<void> {
   await adminMessaging().sendEachForMulticast({
     tokens,
     notification: {
-      title: 'Your Astro101 Plus payment failed',
-      body: 'Update your payment method within 3 days to keep unlimited access.',
+      title: 'Your Astro101 auto-debit failed',
+      body: 'Update your payment method within 3 days to keep your monthly credits coming.',
     },
   });
 }

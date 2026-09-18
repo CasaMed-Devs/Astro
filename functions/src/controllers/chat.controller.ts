@@ -3,10 +3,7 @@ import { z } from 'zod';
 
 import { getOrCreateChat, handleUserMessage, listMessages } from '../services/chat.service';
 import { listProfiles } from '../services/personaApi.service';
-import {
-  getAllPersonaConfigs,
-  DEFAULT_CREDIT_COST_PER_SESSION,
-} from '../services/personaConfig.service';
+import { getAllPersonaConfigs } from '../services/personaConfig.service';
 import { UnauthorizedError } from '../utils/errors';
 
 const PERSONA_API_ORIGIN = 'https://personaapi.web.app';
@@ -70,7 +67,6 @@ export async function listPersonas(_req: Request, res: Response): Promise<void> 
       greeting: profile.greeting,
       openers: profile.openers,
       requiredInputs: profile.required_inputs,
-      creditCostPerSession: config?.creditCostPerSession ?? DEFAULT_CREDIT_COST_PER_SESSION,
       sortOrder: config?.sortOrder ?? Number.MAX_SAFE_INTEGER,
     };
   });

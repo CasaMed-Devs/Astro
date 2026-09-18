@@ -4,7 +4,6 @@ import {
   paiseToRupees,
   rupeesToPaise,
   verifyPaymentSignature,
-  verifySubscriptionSignature,
   verifyWebhookSignature,
 } from './razorpay.service';
 import { PaymentVerificationError } from '../utils/errors';
@@ -64,49 +63,6 @@ describe('verifyPaymentSignature', () => {
 
     expect(() =>
       verifyPaymentSignature({ orderId: 'order_123', paymentId: 'pay_456', signature }),
-    ).toThrow(PaymentVerificationError);
-  });
-});
-
-function signSubscriptionPayment(paymentId: string, subscriptionId: string): string {
-  return createHmac('sha256', KEY_SECRET).update(`${paymentId}|${subscriptionId}`).digest('hex');
-}
-
-describe('verifySubscriptionSignature', () => {
-  it('accepts a signature computed the same way Razorpay computes it for subscriptions', () => {
-    const paymentId = 'pay_456';
-    const subscriptionId = 'sub_123';
-    const signature = signSubscriptionPayment(paymentId, subscriptionId);
-
-    expect(() =>
-      verifySubscriptionSignature({ paymentId, subscriptionId, signature }),
-    ).not.toThrow();
-  });
-
-  it('rejects an order-payment signature reused for a subscription (different HMAC input order)', () => {
-    // order-payment scheme is orderId|paymentId; subscription scheme is
-    // paymentId|subscriptionId — a signature valid for one must not verify
-    // for the other, even with the same underlying ids.
-    const paymentId = 'pay_456';
-    const subscriptionId = 'sub_123';
-    const orderSignature = createHmac('sha256', KEY_SECRET)
-      .update(`${subscriptionId}|${paymentId}`)
-      .digest('hex');
-
-    expect(() =>
-      verifySubscriptionSignature({ paymentId, subscriptionId, signature: orderSignature }),
-    ).toThrow(PaymentVerificationError);
-  });
-
-  it('rejects a signature for a different subscription id (prevents cross-subscription replay)', () => {
-    const signature = signSubscriptionPayment('pay_456', 'sub_999');
-
-    expect(() =>
-      verifySubscriptionSignature({
-        paymentId: 'pay_456',
-        subscriptionId: 'sub_123',
-        signature,
-      }),
     ).toThrow(PaymentVerificationError);
   });
 });

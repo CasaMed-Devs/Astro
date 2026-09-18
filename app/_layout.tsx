@@ -6,7 +6,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AuthProvider } from '@/features/auth/context/AuthProvider';
-import { SubscriptionProvider } from '@/features/payments/context/SubscriptionProvider';
 import { SplashView } from '@/components/states/SplashView';
 import { useAppFonts } from '@/hooks/useAppFonts';
 
@@ -35,10 +34,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <SubscriptionProvider>
-            <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false }} />
-          </SubscriptionProvider>
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false }} />
         </AuthProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

@@ -3,16 +3,21 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getReportPrice, getServerPlan, getTopUpConfig } from '../config/plans';
+import {
+  getReportPrice,
+  getRupeesPerCredit,
+  getSubscriptionAmount,
+  getTopUpConfig,
+  getTrialAmount,
+} from '../config/plans';
 import {
   createOrder,
-  createSubscription,
   fetchOrder,
   paiseToRupees,
   verifyPaymentSignature,
-  verifySubscriptionSignature,
 } from '../services/razorpay.service';
 import { creditWallet } from '../services/credits.service';
+import { startTrial, upgradeNow } from '../services/mandate.service';
 import { generateAndStoreReport, markReportPending } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
@@ -22,10 +27,16 @@ const verifySchema = z.object({
   signature: z.string().min(1),
 });
 
-const verifySubscriptionSchema = z.object({
-  subscriptionId: z.string().min(1),
-  paymentId: z.string().min(1),
-  signature: z.string().min(1),
+const mandateMethodSchema = z.enum(['card', 'upi']);
+
+const startTrialSchema = z.object({
+  method: mandateMethodSchema,
+});
+
+const upgradeNowSchema = z.object({
+  // Only needed when no mandate exists yet (registration path); ignored
+  // when an active mandate is charged directly.
+  method: mandateMethodSchema.optional(),
 });
 
 const topUpOrderSchema = z.object({
@@ -38,73 +49,30 @@ class PricingNotConfiguredError extends HttpError {
   }
 }
 
-export async function createSubscriptionOrder(req: Request, res: Response): Promise<void> {
+/**
+ * Starts the Rs.1 trial: registers a card/UPI auto-debit mandate via a
+ * Razorpay hosted registration page. The 5 trial credits and the day-2
+ * Rs.299 schedule are only set once Razorpay confirms via webhook.
+ */
+export async function startTrialPayment(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const { planId } = z.object({ planId: z.string().min(1) }).parse(req.body);
-  const plan = await getServerPlan(planId);
-  if (!plan?.razorpayPlanId) throw new PricingNotConfiguredError();
-
-  const subscription = await createSubscription(plan.razorpayPlanId, {
-    uid: req.uid,
-    purpose: 'subscription',
-    planId,
-  });
-
-  await adminFirestore()
-    .collection('subscriptions')
-    .doc(req.uid)
-    .set(
-      {
-        planId,
-        status: 'pending',
-        razorpaySubscriptionId: subscription.subscriptionId,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-
-  res.json(subscription);
+  const { method } = startTrialSchema.parse(req.body);
+  const result = await startTrial(req.uid, method);
+  res.json(result);
 }
 
-export async function verifySubscriptionPayment(req: Request, res: Response): Promise<void> {
+/**
+ * "Subscribe Rs.299 now" — charges the existing mandate immediately and
+ * restarts the 30-day cycle, or starts a direct (trial-skipping) mandate
+ * registration if none exists yet.
+ */
+export async function upgradeNowHandler(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const input = verifySubscriptionSchema.parse(req.body);
-  verifySubscriptionSignature(input);
-
-  const db = adminFirestore();
-  const now = FieldValue.serverTimestamp();
-
-  await db.collection('subscriptions').doc(req.uid).set(
-    {
-      status: 'active',
-      razorpaySubscriptionId: input.subscriptionId,
-      currentPeriodStart: now,
-      graceUntil: FieldValue.delete(),
-      updatedAt: now,
-    },
-    { merge: true },
-  );
-
-  // Idempotent: doc id is the Razorpay payment id, so a retried verify call
-  // (e.g. after a network blip) never writes a duplicate ledger entry.
-  await db
-    .collection('payments')
-    .doc(input.paymentId)
-    .set(
-      {
-        userId: req.uid,
-        razorpaySubscriptionId: input.subscriptionId,
-        razorpayPaymentId: input.paymentId,
-        purpose: 'subscription',
-        status: 'paid',
-        createdAt: now,
-      },
-      { merge: true },
-    );
-
-  res.json({ status: 'active' });
+  const { method } = upgradeNowSchema.parse(req.body);
+  const result = await upgradeNow(req.uid, method);
+  res.json(result);
 }
 
 export async function createTopUpOrder(req: Request, res: Response): Promise<void> {
@@ -141,9 +109,9 @@ export async function verifyTopUpPayment(req: Request, res: Response): Promise<v
     throw new ValidationError('This order does not belong to a top-up for this account.');
   }
 
-  const config = await getTopUpConfig();
+  const rupeesPerCredit = await getRupeesPerCredit();
   const amountRupees = paiseToRupees(Number(order.amount));
-  const result = await creditWallet(req.uid, amountRupees, input.paymentId, config.creditsPerRupee);
+  const result = await creditWallet(req.uid, amountRupees, input.paymentId, 1 / rupeesPerCredit);
 
   res.json({
     status: 'ok',
@@ -153,26 +121,24 @@ export async function verifyTopUpPayment(req: Request, res: Response): Promise<v
 }
 
 export async function getTopUpConfigHandler(_req: Request, res: Response): Promise<void> {
-  const config = await getTopUpConfig();
-  res.json(config);
+  const [config, rupeesPerCredit] = await Promise.all([getTopUpConfig(), getRupeesPerCredit()]);
+  res.json({ ...config, rupeesPerCredit });
 }
 
 /**
  * Read-only, end-user-facing mirror of the admin-editable pricing doc, so
- * the paywall/report/top-up screens can display the real admin-set amounts
- * instead of a hardcoded "coming soon" state. No secrets here — safe for any
- * authenticated user.
+ * the paywall/report/top-up screens display the real admin-set amounts. No
+ * secrets here — safe for any authenticated user.
  */
 export async function getPublicPricing(_req: Request, res: Response): Promise<void> {
-  const [subscription, report] = await Promise.all([
-    getServerPlan('astro101-plus-monthly'),
+  const [trial, subscription, report, rupeesPerCredit] = await Promise.all([
+    getTrialAmount(),
+    getSubscriptionAmount(),
     getReportPrice(),
+    getRupeesPerCredit(),
   ]);
 
-  res.json({
-    subscription: { amount: subscription?.amount, currency: subscription?.currency },
-    report,
-  });
+  res.json({ trial, subscription, report, rupeesPerCredit });
 }
 
 export async function createReportOrder(req: Request, res: Response): Promise<void> {
