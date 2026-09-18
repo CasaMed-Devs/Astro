@@ -52,27 +52,7 @@ export default function BirthDetailsScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [waitingForSync, setWaitingForSync] = useState(false);
-  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // The write is confirmed, but `hasBirthDetails` (from the profile
-  // listener in AuthProvider) may not have caught up yet. Navigating
-  // before it does would bounce straight back here, since the tabs
-  // layout's own guard checks the same flag. Wait for it instead of
-  // navigating on a timer, with a timeout so a genuinely stuck
-  // connection shows an error rather than hanging forever.
-  useEffect(() => {
-    if (waitingForSync && hasBirthDetails) {
-      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-      router.replace('/(tabs)/home');
-    }
-  }, [waitingForSync, hasBirthDetails]);
-
-  useEffect(() => {
-    return () => {
-      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    };
-  }, []);
 
   const handleSubmit = async () => {
     const validationError = validateBirthDetails(form);
@@ -102,14 +82,8 @@ export default function BirthDetailsScreen() {
         SAVE_TIMEOUT_MS,
         'Saving is taking too long. Check your connection and try again.',
       );
-      await refreshProfile();
-      setWaitingForSync(true);
-      syncTimeoutRef.current = setTimeout(() => {
-        setWaitingForSync(false);
-        setError(
-          'Saved, but this is taking longer than expected. Check your connection and try again.',
-        );
-      }, PROFILE_SYNC_TIMEOUT_MS);
+      router.replace('/paywall');
+      refreshProfile().catch(() => {});
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not save your details.');
     } finally {
@@ -224,7 +198,7 @@ export default function BirthDetailsScreen() {
       <Button
         label="Generate my kundali"
         onPress={handleSubmit}
-        loading={submitting || waitingForSync}
+        loading={submitting}
         style={styles.submitButton}
       />
     </Screen>

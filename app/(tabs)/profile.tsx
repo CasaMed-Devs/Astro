@@ -6,6 +6,7 @@ import { AppText } from '@/components/common/AppText';
 import { Card } from '@/components/cards/Card';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
+import { getPaywallRoute } from '@/utils/paywall';
 import { colors, radii, spacing } from '@/constants/theme';
 
 export default function ProfileScreen() {
@@ -28,10 +29,7 @@ export default function ProfileScreen() {
         <ProfileRow label="Place of birth" value={profile?.placeOfBirth ?? '—'} />
       </Card>
 
-      <Pressable
-        style={styles.menuRow}
-        onPress={() => router.push(profile?.trialCreditsClaimed ? '/paywall/upgrade' : '/paywall')}
-      >
+      <Pressable style={styles.menuRow} onPress={() => router.push(getPaywallRoute(profile))}>
         <Crown size={20} color={colors.primary} />
         <AppText variant="body" style={styles.menuLabel}>
           {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : 'Try Astro101 for Re.1'}

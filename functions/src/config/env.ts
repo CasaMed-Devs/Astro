@@ -72,7 +72,9 @@ export const env = {
   },
 
   credits: {
-    freeMessageCredits: Number(process.env.FREE_MESSAGE_CREDITS ?? 10),
+    // New users start at 0 — they must complete the Rs.1 trial (which
+    // grants 5 credits, see mandate.service.ts) before they can chat at all.
+    freeMessageCredits: Number(process.env.FREE_MESSAGE_CREDITS ?? 0),
   },
 
   devLogin: {

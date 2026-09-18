@@ -80,7 +80,7 @@ export default function PaywallScreen() {
         if (mandate.trialCreditsClaimed) {
           stopPolling();
           await refreshProfile();
-          router.back();
+          router.replace('/(tabs)/home');
         }
       } catch {
         // Transient — next tick retries.
@@ -104,9 +104,15 @@ export default function PaywallScreen() {
 
   const pricingReady = amount != null && currency != null;
 
+  // Closing without paying sends the user to the home screen, not "back" —
+  // this screen is shown immediately after onboarding (no meaningful screen
+  // to go back to) and a brand-new user has 0 credits, so home is the only
+  // place they can actually be with nothing to do until they subscribe.
+  const handleClose = () => router.replace('/(tabs)/home');
+
   return (
     <Screen scroll>
-      <Pressable onPress={() => router.back()} style={styles.closeButton}>
+      <Pressable onPress={handleClose} style={styles.closeButton}>
         <X size={18} color={colors.textPrimary} />
       </Pressable>
 
@@ -192,7 +198,7 @@ export default function PaywallScreen() {
           loading={processing || waitingForConfirmation}
           disabled={!pricingReady || !session}
         />
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={handleClose}>
           <AppText variant="body" color={colors.textSecondary} style={styles.skipLabel}>
             Not now
           </AppText>

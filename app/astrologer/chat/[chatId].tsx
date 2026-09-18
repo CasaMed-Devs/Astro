@@ -22,6 +22,7 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import { fetchOlderMessages, sendUserMessage, subscribeToMessages } from '@/services/chat.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
+import { getPaywallRoute } from '@/utils/paywall';
 import { colors, radii, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 import type { ChatMessageDoc } from '@/types/firestore';
@@ -146,6 +147,14 @@ export default function ChatScreen() {
     const text = draft.trim();
     if (!text || sending) return;
 
+    // No credits at all — don't even attempt the send, go straight to the
+    // paywall (matches the "not allowed to chat until subscribed" rule for
+    // new/exhausted users rather than showing a dismissable error banner).
+    if (remainingCredits != null && remainingCredits <= 0) {
+      router.push(getPaywallRoute(profile));
+      return;
+    }
+
     const localId = `local-${Date.now()}`;
     setDraft('');
     setSending(true);
@@ -161,8 +170,14 @@ export default function ChatScreen() {
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m.id !== localId));
       const appError = err instanceof AppError ? err : null;
-      setError(appError?.message ?? "Couldn't send your message.");
       setSending(false);
+      if (appError?.code === 'credits/insufficient') {
+        // Same rule applies if credits ran out server-side since our last
+        // sync (e.g. a race with another device) — go straight to paywall.
+        router.push(getPaywallRoute(profile));
+        return;
+      }
+      setError(appError?.message ?? "Couldn't send your message.");
     }
   };
 
@@ -239,11 +254,7 @@ export default function ChatScreen() {
                   Top up
                 </AppText>
               </Pressable>
-              <Pressable
-                onPress={() =>
-                  router.push(profile?.trialCreditsClaimed ? '/paywall/upgrade' : '/paywall')
-                }
-              >
+              <Pressable onPress={() => router.push(getPaywallRoute(profile))}>
                 <AppText variant="label" color={colors.primary}>
                   Upgrade
                 </AppText>
