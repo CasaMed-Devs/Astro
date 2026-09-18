@@ -106,33 +106,13 @@ const MANDATE_EXPIRE_AT = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 6
 // Upper bound Razorpay enforces per auto-debit under this mandate.
 const MANDATE_MAX_AMOUNT_RUPEES = 500;
 
-export interface RazorpayCustomerRef {
-  customerId: string;
-}
-
-/**
- * Gets-or-creates a Razorpay Customer for this user, keyed by phone number.
- * fail_existing:0 makes Razorpay return the existing customer instead of
- * erroring if one with the same contact already exists — needed since a
- * user might restart the trial flow (e.g. app reinstall) without us having
- * their customer id cached yet.
- */
-export async function getOrCreateCustomer(
-  phoneNumber: string,
-  notes?: Record<string, string>,
-): Promise<RazorpayCustomerRef> {
-  const client = getClient();
-  const customer = await client.customers.create({
-    contact: phoneNumber,
-    fail_existing: 0,
-    notes,
-  });
-  return { customerId: customer.id };
-}
-
 export interface CreatedRegistration {
   registrationLinkId: string;
   shortUrl: string;
+  // The Razorpay Customer Razorpay itself created/matched for this
+  // registration — read from the API response, not chosen by us (the
+  // registration-link endpoint takes an inline `customer` object, not a
+  // pre-existing customer_id).
   customerId: string;
 }
 
@@ -143,16 +123,23 @@ export interface CreatedRegistration {
  * pay the authorization amount and grant the mandate; Razorpay confirms via
  * the `payment.captured`/`token.confirmed` webhooks (see webhook.controller.ts),
  * which is the source of truth — this call only kicks the flow off.
+ *
+ * `frequency: 'as_presented'` tells Razorpay/the bank this mandate is
+ * charged whenever we (the merchant) present a debit, not on a fixed
+ * calendar date — matching our own day-2-then-every-30-days schedule
+ * (see mandate.service.ts), which a fixed frequency couldn't express.
  */
 export async function createRecurringRegistration(
-  customerId: string,
+  name: string,
+  email: string,
+  contact: string,
   authorizationAmountRupees: number,
   method: 'card' | 'upi',
   notes?: Record<string, string>,
 ): Promise<CreatedRegistration> {
   const client = getClient();
   const link = await client.subscriptions.createRegistrationLink({
-    customer_id: customerId,
+    customer: { name, email, contact },
     type: 'link',
     amount: rupeesToPaise(authorizationAmountRupees),
     currency: 'INR',
@@ -161,15 +148,13 @@ export async function createRecurringRegistration(
       method,
       max_amount: rupeesToPaise(MANDATE_MAX_AMOUNT_RUPEES),
       expire_at: MANDATE_EXPIRE_AT,
+      frequency: 'as_presented',
     },
     notes,
   } as unknown as Parameters<Razorpay['subscriptions']['createRegistrationLink']>[0]);
 
-  return {
-    registrationLinkId: link.id,
-    shortUrl: (link as unknown as { short_url: string }).short_url,
-    customerId,
-  };
+  const raw = link as unknown as { id: string; short_url: string; customer_id: string };
+  return { registrationLinkId: raw.id, shortUrl: raw.short_url, customerId: raw.customer_id };
 }
 
 /**
@@ -189,13 +174,15 @@ export async function chargeRecurringToken(
   notes?: Record<string, string>,
 ): Promise<{ paymentId: string; orderId: string }> {
   const client = getClient();
+  // Plain order create — `customer_id` isn't a field on regular orders (it's
+  // only accepted on the separate "authorization" order type); the
+  // customer/token linkage happens below, at payment creation.
   const order = await client.orders.create({
     amount: rupeesToPaise(amountRupees),
     currency: 'INR',
     receipt,
-    customer_id: customerId,
     notes,
-  } as unknown as Parameters<Razorpay['orders']['create']>[0]);
+  });
 
   const payment = await client.payments.createRecurringPayment({
     amount: rupeesToPaise(amountRupees),

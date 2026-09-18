@@ -2,11 +2,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { getRupeesPerCredit, getSubscriptionAmount, getTrialAmount } from '../config/plans';
-import {
-  chargeRecurringToken,
-  createRecurringRegistration,
-  getOrCreateCustomer,
-} from './razorpay.service';
+import { chargeRecurringToken, createRecurringRegistration } from './razorpay.service';
 import { creditWallet } from './credits.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateMethod, UserProfileRecord } from '../types';
@@ -78,15 +74,22 @@ async function startRegistration(
 ): Promise<StartRegistrationResult> {
   const user = await getUserOrThrow(uid);
 
-  const { customerId } = await getOrCreateCustomer(user.phoneNumber, { uid });
-  const registration = await createRecurringRegistration(customerId, amountRupees, method, {
-    uid,
-    purpose,
-  });
+  // Razorpay's registration-link API takes an inline customer object (not a
+  // pre-existing customer_id) and creates/matches the Customer itself — we
+  // don't collect email anywhere in this app, so a stable synthetic one is
+  // used purely as a Razorpay-required identifier field.
+  const registration = await createRecurringRegistration(
+    user.name ?? 'Astro101 User',
+    `${uid}@users.astro101.app`,
+    user.phoneNumber,
+    amountRupees,
+    method,
+    { uid, purpose },
+  );
 
   await adminFirestore().collection('users').doc(uid).set(
     {
-      razorpayCustomerId: customerId,
+      razorpayCustomerId: registration.customerId,
       mandateMethod: method,
       mandateStatus: 'pending',
       updatedAt: FieldValue.serverTimestamp(),
