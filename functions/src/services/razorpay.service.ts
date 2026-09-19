@@ -157,6 +157,41 @@ export async function createRecurringRegistration(
   return { registrationLinkId: raw.id, shortUrl: raw.short_url, customerId: raw.customer_id };
 }
 
+/**
+ * Razorpay rejects creating a Customer that already exists for the merchant
+ * (a retried trial, or one created earlier by a registration link). Reuse the
+ * customer we stored, else create with fail_existing off, else look it up by
+ * the stable synthetic email.
+ */
+async function getOrCreateCustomer(
+  client: Razorpay,
+  name: string,
+  email: string,
+  contact: string,
+  existingCustomerId?: string,
+): Promise<{ id: string }> {
+  if (existingCustomerId) return { id: existingCustomerId };
+
+  try {
+    return await client.customers.create({
+      name,
+      email,
+      contact,
+      fail_existing: '0',
+    } as unknown as Parameters<Razorpay['customers']['create']>[0]);
+  } catch (err) {
+    const description = (err as { error?: { description?: string } } | null)?.error?.description;
+    if (!description?.toLowerCase().includes('already exists')) throw err;
+
+    const all = await client.customers.all({ count: 100 });
+    const match = all.items.find(
+      (c) => c.email === email || String(c.contact ?? '').replace(/\D/g, '').endsWith(contact.replace(/\D/g, '').slice(-10)),
+    );
+    if (!match) throw err;
+    return { id: match.id };
+  }
+}
+
 export interface CreatedRecurringOrder extends CreatedOrder {
   customerId: string;
 }
@@ -177,14 +212,10 @@ export async function createRecurringOrder(
   method: 'card' | 'upi',
   receipt: string,
   notes?: Record<string, string>,
+  existingCustomerId?: string,
 ): Promise<CreatedRecurringOrder> {
   const client = getClient();
-  const customer = await client.customers.create({
-    name,
-    email,
-    contact,
-    fail_existing: 0,
-  } as Parameters<Razorpay['customers']['create']>[0]);
+  const customer = await getOrCreateCustomer(client, name, email, contact, existingCustomerId);
 
   const order = await client.orders.create({
     amount: rupeesToPaise(authorizationAmountRupees),

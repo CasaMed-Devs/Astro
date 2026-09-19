@@ -133,6 +133,7 @@ export async function startTrialOrder(
     method,
     `trial_${uid}_${Date.now()}`,
     { uid, purpose: 'trial' },
+    user.razorpayCustomerId,
   );
 
   await adminFirestore().collection('users').doc(uid).set(
