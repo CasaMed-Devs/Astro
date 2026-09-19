@@ -38,6 +38,9 @@ export interface UserProfileRecord {
   // Set when an auto-debit charge fails; cleared on the next success.
   graceUntil?: FirebaseFirestore.Timestamp;
   lastPaymentFailureReason?: string;
+  // Set once the one-time Rs.49 kundali payment is verified — lifetime access.
+  kundaliUnlocked?: boolean;
+  kundaliUnlockedAt?: FirebaseFirestore.Timestamp;
 }
 
 export type ReportStatus = 'pending' | 'ready' | 'failed';

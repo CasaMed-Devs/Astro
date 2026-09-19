@@ -73,7 +73,7 @@ export interface PaymentDoc {
   createdAt?: string;
 }
 
-export type ReportStatus = 'pending' | 'ready' | 'failed';
+export type ReportStatus = 'pending' | 'ready' | 'failed' | 'locked';
 
 export interface ReportPlanet {
   name: string;

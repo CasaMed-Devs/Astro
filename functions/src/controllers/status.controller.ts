@@ -2,8 +2,12 @@ import type { Request, Response } from 'express';
 import type { Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { generateAndStoreReport, markReportPending } from '../services/report.service';
-import { UnauthorizedError } from '../utils/errors';
+import {
+  generateAndStoreReport,
+  isKundaliUnlocked,
+  markReportPending,
+} from '../services/report.service';
+import { HttpError, UnauthorizedError } from '../utils/errors';
 import type { ReportRecord, UserProfileRecord } from '../types';
 
 function serializeTimestamp(value: Timestamp | undefined): string | undefined {
@@ -12,6 +16,12 @@ function serializeTimestamp(value: Timestamp | undefined): string | undefined {
 
 export async function getMyReport(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
+
+  // Enforced here, not just in the app: a locked user gets no chart data.
+  if (!(await isKundaliUnlocked(req.uid))) {
+    res.json({ status: 'locked' });
+    return;
+  }
 
   const snapshot = await adminFirestore().collection('reports').doc(req.uid).get();
   if (!snapshot.exists) {
@@ -56,6 +66,9 @@ export async function getMyMandate(req: Request, res: Response): Promise<void> {
 
 export async function generateReport(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
+  if (!(await isKundaliUnlocked(req.uid))) {
+    throw new HttpError(402, 'Unlock your kundali to generate it.');
+  }
   await markReportPending(req.uid);
   generateAndStoreReport(req.uid).catch(console.error);
   res.json({ status: 'pending' });

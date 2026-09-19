@@ -40,12 +40,12 @@ export async function getRupeesPerCredit(): Promise<number> {
   return stored.creditPricing?.rupeesPerCredit ?? env.creditPricing.rupeesPerCredit;
 }
 
+// The kundali unlock is a fixed one-time price (product decision), not
+// admin-editable — the appConfig/env `report` value is intentionally ignored.
+export const KUNDALI_UNLOCK_PRICE = { amount: 49, currency: 'INR' } as const;
+
 export async function getReportPrice(): Promise<{ amount?: number; currency?: string }> {
-  const stored = await getPaywallPricingDoc();
-  return {
-    amount: stored.report?.amount ?? env.reportPrice.amount,
-    currency: stored.report?.currency ?? env.reportPrice.currency,
-  };
+  return { ...KUNDALI_UNLOCK_PRICE };
 }
 
 export interface ResolvedTopUpConfig {

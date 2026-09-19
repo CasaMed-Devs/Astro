@@ -23,7 +23,7 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <Screen padded={false} scroll>
+    <Screen edges={['top']} padded={false} scroll>
       <View style={styles.header}>
         <AppText variant="displayMd">Hi{profile?.name ? `, ${profile.name}` : ''}</AppText>
         <AppText variant="body" color={colors.textSecondary}>

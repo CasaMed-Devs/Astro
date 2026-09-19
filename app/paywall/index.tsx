@@ -8,15 +8,13 @@ import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
-  getPricing,
   openRazorpayCheckout,
   startTrialOrder,
   verifyTrialPayment,
 } from '@/services/payment.service';
-import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -40,10 +38,10 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function PaywallScreen() {
   const { session, profile, refreshProfile } = useAuth();
-  const [trialAmount, setTrialAmount] = useState<number | undefined>(undefined);
-  const [trialCurrency, setTrialCurrency] = useState<string | undefined>(undefined);
-  const [subscriptionAmount, setSubscriptionAmount] = useState<number | undefined>(undefined);
-  const [avatarPersonas, setAvatarPersonas] = useState<AstrologerProfile[]>([]);
+  const { pricing, avatars: avatarPersonas } = usePaywallData();
+  const trialAmount = pricing?.trial.amount;
+  const trialCurrency = pricing?.trial.currency;
+  const subscriptionAmount = pricing?.subscription.amount;
   const [processing, setProcessing] = useState(false);
   const [waitingForConfirmation, setWaitingForConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,26 +67,6 @@ export default function PaywallScreen() {
     await refreshProfile().catch(() => {});
     router.replace('/(tabs)/home');
   };
-
-  useEffect(() => {
-    fetchAstrologerProfiles()
-      .then((profiles) => setAvatarPersonas(profiles.slice(0, 6)))
-      .catch(() => setAvatarPersonas([]));
-  }, []);
-
-  useEffect(() => {
-    getPricing()
-      .then((pricing) => {
-        setTrialAmount(pricing.trial.amount);
-        setTrialCurrency(pricing.trial.currency);
-        setSubscriptionAmount(pricing.subscription.amount);
-      })
-      .catch(() => {
-        setTrialAmount(undefined);
-        setTrialCurrency(undefined);
-        setSubscriptionAmount(undefined);
-      });
-  }, []);
 
   // Refreshed here rather than by the screen that navigated us here (e.g.
   // right after saving birth details) — doing it there, while still inside
@@ -248,7 +226,7 @@ export default function PaywallScreen() {
       ) : (
         <View style={styles.priceCard}>
           <View style={styles.priceCardBody}>
-            <AppText style={styles.priceCardTitle}>Pricing coming soon</AppText>
+            <View style={styles.priceSkeleton} />
           </View>
         </View>
       )}
@@ -295,6 +273,7 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     marginTop: spacing.md,
+    minHeight: 200,
     borderRadius: radii.lg,
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
@@ -390,6 +369,7 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   priceAccentBar: { width: 6, backgroundColor: colors.primary },
+  priceSkeleton: { height: 44, flex: 1, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
   priceCardBody: {
     flex: 1,
     padding: spacing.lg,

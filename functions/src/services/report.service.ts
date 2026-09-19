@@ -62,6 +62,32 @@ function formatChartForPrompt(kundali: KundaliData): string {
   ].join('\n');
 }
 
+/**
+ * Lifetime access to the kundali. A user is unlocked once they've paid the
+ * one-time fee (kundaliUnlocked), or if a kundali was already generated for
+ * them before the paywall existed (grandfathered — no migration needed).
+ */
+export async function isKundaliUnlocked(uid: string): Promise<boolean> {
+  const db = adminFirestore();
+  const [userSnapshot, reportSnapshot] = await Promise.all([
+    db.collection('users').doc(uid).get(),
+    db.collection('reports').doc(uid).get(),
+  ]);
+  if ((userSnapshot.data() as UserProfileRecord | undefined)?.kundaliUnlocked) return true;
+  return Boolean(reportSnapshot.data()?.kundali);
+}
+
+export async function unlockKundali(uid: string): Promise<void> {
+  await adminFirestore().collection('users').doc(uid).set(
+    {
+      kundaliUnlocked: true,
+      kundaliUnlockedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
 export async function markReportPending(uid: string): Promise<void> {
   await adminFirestore()
     .collection('reports')

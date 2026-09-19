@@ -25,7 +25,7 @@ import {
   verifySubscriptionPayment,
   verifyTrialRegistration,
 } from '../services/mandate.service';
-import { generateAndStoreReport, markReportPending } from '../services/report.service';
+import { unlockKundali } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
 const verifySchema = z.object({
@@ -224,22 +224,43 @@ export async function verifyReportPayment(req: Request, res: Response): Promise<
   const input = verifySchema.parse(req.body);
   verifyPaymentSignature(input);
 
-  const db = adminFirestore();
-  await db.collection('payments').add({
-    userId: req.uid,
-    orderId: input.orderId,
-    razorpayPaymentId: input.paymentId,
-    purpose: 'report',
-    status: 'paid',
-    createdAt: FieldValue.serverTimestamp(),
-  });
+  // The order must be this user's kundali order, at the fixed unlock price.
+  const order = await fetchOrder(input.orderId);
+  const notes = order.notes as Record<string, string> | undefined;
+  if (notes?.uid !== req.uid || notes?.purpose !== 'report') {
+    throw new ValidationError('This order does not belong to a kundali unlock for this account.');
+  }
 
-  await markReportPending(req.uid);
+  await recordKundaliPayment(req.uid, input.orderId, input.paymentId, paiseToRupees(Number(order.amount)));
+  res.json({ status: 'ok' });
+}
 
-  // Awaited (rather than fire-and-forget) because a serverless instance can
-  // be frozen the moment a response is sent, which would silently drop a
-  // background task. A production upgrade path is to hand this off to
-  // Cloud Tasks so the HTTP response can return immediately.
-  await generateAndStoreReport(req.uid);
-  res.json({ status: 'ready' });
+/**
+ * Logs the Rs.49 payment (idempotent — the doc id is the Razorpay payment id,
+ * so a retry or the webhook can't double-record) and grants lifetime access.
+ * Chart generation is deliberately NOT done here: the report screen triggers
+ * it once unlocked, keeping this request fast.
+ */
+export async function recordKundaliPayment(
+  uid: string,
+  orderId: string,
+  paymentId: string,
+  amountRupees: number,
+): Promise<void> {
+  await adminFirestore()
+    .collection('payments')
+    .doc(paymentId)
+    .set(
+      {
+        userId: uid,
+        orderId,
+        razorpayPaymentId: paymentId,
+        purpose: 'report',
+        amount: amountRupees,
+        status: 'paid',
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  await unlockKundali(uid);
 }

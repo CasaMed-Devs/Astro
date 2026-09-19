@@ -8,15 +8,13 @@ import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
-  getPricing,
   openRazorpayCheckout,
   startSubscriptionOrder,
   verifySubscriptionPayment,
 } from '@/services/payment.service';
-import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -45,29 +43,14 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
  */
 export default function UpgradeScreen() {
   const { session, profile, refreshProfile } = useAuth();
-  const [amount, setAmount] = useState<number | undefined>(undefined);
-  const [currency, setCurrency] = useState<string | undefined>(undefined);
-  const [avatarPersonas, setAvatarPersonas] = useState<AstrologerProfile[]>([]);
+  const { pricing, avatars: avatarPersonas } = usePaywallData();
+  const amount = pricing?.subscription.amount;
+  const currency = pricing?.subscription.currency;
   const [processing, setProcessing] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    getPricing()
-      .then((pricing) => {
-        setAmount(pricing.subscription.amount);
-        setCurrency(pricing.subscription.currency);
-      })
-      .catch(() => {
-        setAmount(undefined);
-        setCurrency(undefined);
-      });
-    fetchAstrologerProfiles()
-      .then((profiles) => setAvatarPersonas(profiles.slice(0, 6)))
-      .catch(() => setAvatarPersonas([]));
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -235,7 +218,7 @@ export default function UpgradeScreen() {
               </AppText>
             </>
           ) : (
-            <AppText style={styles.priceCardTitle}>Loading...</AppText>
+            <View style={styles.priceSkeleton} />
           )}
         </View>
       </View>
@@ -278,6 +261,7 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     marginTop: spacing.md,
+    minHeight: 200,
     borderRadius: radii.lg,
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
@@ -373,6 +357,7 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   priceAccentBar: { width: 6, backgroundColor: colors.primary },
+  priceSkeleton: { height: 44, flex: 1, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
   priceCardBody: {
     flex: 1,
     padding: spacing.lg,

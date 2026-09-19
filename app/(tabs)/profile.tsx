@@ -13,7 +13,7 @@ export default function ProfileScreen() {
   const { profile, signOut } = useAuth();
 
   return (
-    <Screen scroll>
+    <Screen edges={['top']} scroll>
       <View style={styles.header}>
         <AppText variant="displayMd">Profile</AppText>
       </View>

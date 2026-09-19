@@ -22,7 +22,8 @@ export default function OtpScreen() {
   const [resending, setResending] = useState(false);
   const { secondsLeft, reset } = useCountdown(RESEND_SECONDS);
 
-  const handleVerify = async () => {
+  const handleVerify = async (value: string = code) => {
+    if (verifying) return;
     if (!phoneNumber || !identificationToken) {
       setError('Session expired. Please request a new code.');
       return;
@@ -30,7 +31,7 @@ export default function OtpScreen() {
     setError(null);
     setVerifying(true);
     try {
-      await confirmOtp(phoneNumber, code, identificationToken);
+      await confirmOtp(phoneNumber, value, identificationToken);
       Keyboard.dismiss();
       // Defer to the next frame so the keyboard-dismiss commit fully settles
       // before react-native-screens tears down this screen and mounts the
@@ -42,6 +43,13 @@ export default function OtpScreen() {
     } finally {
       setVerifying(false);
     }
+  };
+
+  // Verifies automatically the moment the 6th digit is entered. Editing the
+  // code afterwards (length drops below 6) re-arms it for the next attempt.
+  const handleCodeChange = (next: string) => {
+    setCode(next);
+    if (next.length === 6) handleVerify(next);
   };
 
   const handleResend = async () => {
@@ -85,7 +93,7 @@ export default function OtpScreen() {
       </View>
 
       <View style={styles.otpBlock}>
-        <OtpInput value={code} onChange={setCode} autoFocus />
+        <OtpInput value={code} onChange={handleCodeChange} autoFocus />
         {error ? (
           <AppText variant="bodySmall" color={colors.danger}>
             {error}
@@ -96,7 +104,7 @@ export default function OtpScreen() {
       <View style={styles.footer}>
         <Button
           label="Verify"
-          onPress={handleVerify}
+          onPress={() => handleVerify()}
           loading={verifying}
           disabled={code.length !== 6}
           testID="verify-otp-button"

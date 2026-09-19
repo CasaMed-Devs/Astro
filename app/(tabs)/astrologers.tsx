@@ -45,7 +45,7 @@ export default function AstrologersScreen() {
   }, [query, personas]);
 
   return (
-    <Screen padded={false}>
+    <Screen edges={['top']} padded={false}>
       <View style={styles.header}>
         <AppText variant="displayMd">Astrologer</AppText>
         <AppText variant="bodySmall" color={colors.textSecondary}>

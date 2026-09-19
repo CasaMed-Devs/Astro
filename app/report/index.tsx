@@ -7,9 +7,17 @@ import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { LoadingView } from '@/components/states/LoadingView';
+import { LockedKundali } from '@/components/astrology/LockedKundali';
 import { NorthIndianChart } from '@/components/astrology/NorthIndianChart';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { apiClient } from '@/services/apiClient';
+import {
+  createReportOrder,
+  getPricing,
+  openRazorpayCheckout,
+  verifyReportPayment,
+} from '@/services/payment.service';
+import { AppError } from '@/utils/errors';
 import { subscribeToReport } from '@/services/report.service';
 import { colors, radii, spacing, shadows } from '@/constants/theme';
 import type { ReportDoc, ReportDasha } from '@/types/firestore';
@@ -140,6 +148,17 @@ export default function ReportScreen() {
   const { session, profile } = useAuth();
   const [report, setReport] = useState<ReportDoc | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [price, setPrice] = useState(49);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPricing()
+      .then((pricing) => {
+        if (pricing.report.amount) setPrice(pricing.report.amount);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -169,6 +188,28 @@ export default function ReportScreen() {
     apiClient.post('/reports/generate').catch((err) => setError(err.message || 'API Error'));
   };
 
+  // Real Razorpay payment; the backend unlocks the kundali only after it
+  // verifies the payment. Then clearing `report` makes the effect above kick
+  // off generation — no navigation, just a state change.
+  const handleUnlock = async () => {
+    setPaying(true);
+    setPayError(null);
+    try {
+      const order = await createReportOrder();
+      const result = await openRazorpayCheckout(order, {
+        name: 'Astro101',
+        description: 'Unlock your Janma Kundali',
+        contact: session?.phoneNumber ?? undefined,
+      });
+      await verifyReportPayment(result);
+      setReport(null);
+    } catch (err) {
+      setPayError(err instanceof AppError ? err.message : 'Could not complete the payment.');
+    } finally {
+      setPaying(false);
+    }
+  };
+
   const handleRegenerate = () => {
     apiClient.post('/reports/generate').catch((err) => setError(err.message || 'API Error'));
   };
@@ -193,6 +234,20 @@ export default function ReportScreen() {
       <Screen>
         <HeaderRow />
         <LoadingView message={report === null ? 'Initializing your Kundali...' : undefined} />
+      </Screen>
+    );
+  }
+
+  if (report.status === 'locked') {
+    return (
+      <Screen>
+        <HeaderRow />
+        <LockedKundali
+          priceLabel={`₹${price}`}
+          paying={paying}
+          error={payError}
+          onPay={handleUnlock}
+        />
       </Screen>
     );
   }

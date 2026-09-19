@@ -4,9 +4,11 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { LoadingView } from '@/components/states/LoadingView';
 
 export default function Index() {
-  const { status, hasBirthDetails } = useAuth();
+  const { status, hasBirthDetails, profileReady } = useAuth();
 
-  if (status === 'loading') {
+  // Wait for the profile too: on app reopen the session is restored before
+  // the profile arrives, and deciding now would flash birth-details.
+  if (status === 'loading' || (status === 'authenticated' && !profileReady)) {
     return <LoadingView />;
   }
 

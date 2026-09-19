@@ -2,8 +2,9 @@ import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore, adminMessaging } from '../config/firebase-admin';
-import { fetchOrder, verifyWebhookSignature } from '../services/razorpay.service';
+import { fetchOrder, paiseToRupees, verifyWebhookSignature } from '../services/razorpay.service';
 import { completeMandateRegistration } from '../services/mandate.service';
+import { recordKundaliPayment } from './payment.controller';
 import { PaymentVerificationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
 
@@ -12,6 +13,7 @@ const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 interface RazorpayPaymentEntity {
   id: string;
   order_id?: string | null;
+  amount?: number; // paise
   token_id?: string | null;
   customer_id?: string | null;
   notes?: Record<string, string>;
@@ -75,6 +77,16 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
         const isRegistration = purpose === 'trial' || purpose === 'direct_subscription';
         if (isRegistration && payment?.token_id) {
           await completeMandateRegistration(uid, payment.token_id, payment.id, purpose);
+        }
+        // Fallback for a kundali payment whose app-side verify never ran
+        // (app closed right after paying) — idempotent with verifyReportPayment.
+        if (purpose === 'report' && payment) {
+          await recordKundaliPayment(
+            uid,
+            payment.order_id ?? '',
+            payment.id,
+            paiseToRupees(Number(payment.amount ?? 0)),
+          );
         }
         break;
       }
