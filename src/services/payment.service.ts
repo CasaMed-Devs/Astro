@@ -93,6 +93,11 @@ export function startTrialOrder(method: MandateMethod): Promise<RecurringOrder> 
   return apiClient.post<RecurringOrder>('/payments/trial/order', { method });
 }
 
+/** Confirms the trial right after checkout; 'pending' means the webhook will finish it. */
+export function verifyTrialPayment(input: VerifyPaymentInput): Promise<{ status: 'ok' | 'pending' }> {
+  return apiClient.post('/payments/trial/verify', input);
+}
+
 export function upgradeNow(method?: MandateMethod): Promise<UpgradeNowResult> {
   return apiClient.post<UpgradeNowResult>('/payments/subscription/upgrade-now', { method });
 }

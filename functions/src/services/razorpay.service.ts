@@ -68,6 +68,40 @@ export async function fetchOrder(orderId: string) {
   return client.orders.fetch(orderId);
 }
 
+export async function fetchPayment(paymentId: string) {
+  return getClient().payments.fetch(paymentId);
+}
+
+/**
+ * Best-effort lookup of the mandate token for a just-completed registration
+ * payment: the payment entity carries `token_id` for recurring payments; if
+ * it's not there yet, fall back to the customer's newest saved token.
+ * Returns null when Razorpay hasn't created the token yet (e.g. a UPI
+ * mandate still confirming) — the webhook completes registration then.
+ */
+export async function findMandateTokenId(
+  paymentId: string,
+  customerId?: string,
+): Promise<string | null> {
+  const payment = (await fetchPayment(paymentId)) as unknown as {
+    token_id?: string | null;
+    customer_id?: string | null;
+    status?: string;
+  };
+  if (payment.token_id) return payment.token_id;
+
+  const customer = customerId ?? payment.customer_id ?? undefined;
+  if (!customer || (payment.status !== 'captured' && payment.status !== 'authorized')) return null;
+
+  const tokens = (await getClient().customers.fetchTokens(customer)) as unknown as {
+    items?: { id: string; recurring?: boolean; created_at?: number }[];
+  };
+  const newest = (tokens.items ?? [])
+    .filter((t) => t.recurring !== false)
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
+  return newest?.id ?? null;
+}
+
 export interface VerifySignatureInput {
   orderId: string;
   paymentId: string;

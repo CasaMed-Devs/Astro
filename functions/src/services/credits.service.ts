@@ -66,6 +66,9 @@ export async function creditWallet(
   amountRupees: number,
   razorpayPaymentId: string,
   creditsPerRupee: number,
+  // 'topup' = user-initiated wallet recharge (shown in wallet history);
+  // 'subscription' = Rs.299 plan charges (auto-debit, upgrade-now).
+  purpose: 'topup' | 'subscription' = 'topup',
 ): Promise<CreditWalletResult> {
   const db = adminFirestore();
   const userRef = db.collection('users').doc(uid);
@@ -96,7 +99,7 @@ export async function creditWallet(
     transaction.set(paymentRef, {
       userId: uid,
       razorpayPaymentId,
-      purpose: 'topup',
+      purpose,
       amount: amountRupees, // Rupees, like every other stored/displayed amount in this app.
       creditsAwarded,
       status: 'paid',

@@ -14,6 +14,7 @@ import {
   getPricing,
   openRazorpayCheckout,
   startTrialOrder,
+  verifyTrialPayment,
 } from '@/services/payment.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
@@ -128,16 +129,23 @@ export default function PaywallScreen() {
     setError(null);
     try {
       const order = await startTrialOrder(REGISTRATION_METHOD);
-      await openRazorpayCheckout(order, {
+      const result = await openRazorpayCheckout(order, {
         name: 'Astro101',
         description: 'Start your trial',
         contact: session?.phoneNumber ?? undefined,
         customerId: order.customerId,
         method: REGISTRATION_METHOD,
       });
-      // The mandate and trial credits are granted by Razorpay's webhook, not
-      // by this client — poll until the backend confirms.
-      startPollingForConfirmation();
+      // Ask the backend to confirm right away (signature-checked); if
+      // Razorpay hasn't issued the mandate token yet, fall back to polling
+      // until its webhook completes the registration.
+      const verification = await verifyTrialPayment(result).catch(() => ({ status: 'pending' as const }));
+      if (verification.status === 'ok') {
+        await refreshProfile();
+        router.replace('/(tabs)/home');
+      } else {
+        startPollingForConfirmation();
+      }
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not start the trial.');
     } finally {

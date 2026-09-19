@@ -17,7 +17,12 @@ import {
   verifyPaymentSignature,
 } from '../services/razorpay.service';
 import { creditWallet } from '../services/credits.service';
-import { startTrial, startTrialOrder, upgradeNow } from '../services/mandate.service';
+import {
+  startTrial,
+  startTrialOrder,
+  upgradeNow,
+  verifyTrialRegistration,
+} from '../services/mandate.service';
 import { generateAndStoreReport, markReportPending } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
@@ -68,6 +73,14 @@ export async function startTrialOrderHandler(req: Request, res: Response): Promi
 
   const { method } = startTrialSchema.parse(req.body);
   res.json(await startTrialOrder(req.uid, method));
+}
+
+/** Confirms the Rs.1 trial right after checkout (the webhook remains the fallback). */
+export async function verifyTrialPaymentHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const input = verifySchema.parse(req.body);
+  res.json(await verifyTrialRegistration(req.uid, input));
 }
 
 /**

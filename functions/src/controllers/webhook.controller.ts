@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore, adminMessaging } from '../config/firebase-admin';
-import { verifyWebhookSignature } from '../services/razorpay.service';
+import { fetchOrder, verifyWebhookSignature } from '../services/razorpay.service';
 import { completeMandateRegistration } from '../services/mandate.service';
 import { PaymentVerificationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
@@ -11,6 +11,7 @@ const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
 interface RazorpayPaymentEntity {
   id: string;
+  order_id?: string | null;
   token_id?: string | null;
   customer_id?: string | null;
   notes?: Record<string, string>;
@@ -58,7 +59,13 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   const payload = JSON.parse(rawBody) as RazorpayWebhookPayload;
   const payment = payload.payload.payment?.entity;
   const token = payload.payload.token?.entity;
-  const notes = payment?.notes ?? token?.notes;
+  let notes = payment?.notes ?? token?.notes;
+  // Order-based checkout puts uid/purpose on the *order*, not the payment, so
+  // a payment/token event can arrive without them — recover from the order,
+  // or from the Razorpay customer we stored on the user.
+  if (!notes?.uid) {
+    notes = (await recoverNotes(payment, token)) ?? notes;
+  }
   const uid = notes?.uid;
   const purpose = notes?.purpose;
 
@@ -109,6 +116,38 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   }
 
   res.status(200).json({ received: true });
+}
+
+async function recoverNotes(
+  payment?: RazorpayPaymentEntity,
+  token?: RazorpayTokenEntity,
+): Promise<Record<string, string> | undefined> {
+  if (payment?.order_id) {
+    try {
+      const order = await fetchOrder(payment.order_id);
+      const orderNotes = order.notes as Record<string, string> | undefined;
+      if (orderNotes?.uid) return orderNotes;
+    } catch {
+      // fall through to the customer lookup
+    }
+  }
+
+  const customerId = payment?.customer_id ?? token?.customer_id;
+  if (!customerId) return undefined;
+
+  const snapshot = await adminFirestore()
+    .collection('users')
+    .where('razorpayCustomerId', '==', customerId)
+    .limit(1)
+    .get();
+  const doc = snapshot.docs[0];
+  if (!doc) return undefined;
+
+  const user = doc.data() as UserProfileRecord;
+  // Only a user with a registration in flight is completing one; anything
+  // else (e.g. an auto-debit) always carries its own notes.
+  if (user.mandateStatus !== 'pending') return undefined;
+  return { uid: doc.id, purpose: user.trialCreditsClaimed ? 'direct_subscription' : 'trial' };
 }
 
 async function sendAutoDebitFailedNotification(uid: string): Promise<void> {

@@ -24,12 +24,17 @@ type Doc = Record<string, unknown>;
  * logic without a real emulator.
  */
 function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Record<string, Doc> }) {
-  const store: { users: Record<string, Doc>; payments: Record<string, Doc> } = {
+  const store: {
+    users: Record<string, Doc>;
+    payments: Record<string, Doc>;
+    subscriptions: Record<string, Doc>;
+  } = {
     users: { ...(initial.users ?? {}) },
     payments: { ...(initial.payments ?? {}) },
+    subscriptions: {},
   };
 
-  function docRef(collectionName: 'users' | 'payments', id: string) {
+  function docRef(collectionName: 'users' | 'payments' | 'subscriptions', id: string) {
     return {
       id,
       get: async () => ({
@@ -69,7 +74,7 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Re
     return result;
   }
 
-  function collection(name: 'users' | 'payments') {
+  function collection(name: 'users' | 'payments' | 'subscriptions') {
     return {
       doc: (id: string) => docRef(name, id),
       where(field: string, op: string, value: unknown) {
@@ -168,6 +173,12 @@ describe('completeMandateRegistration (trial path)', () => {
 
     expect(store.users.uid1.credits).toBe(15); // +5 once, not +10
     expect(store.users.uid1.trialCreditsClaimed).toBe(true);
+    expect(store.subscriptions.uid1).toMatchObject({
+      userId: 'uid1',
+      planId: 'trial',
+      status: 'trialing',
+      razorpayTokenId: 'tok_1',
+    });
     expect(store.users.uid1.mandateStatus).toBe('active');
     expect(store.users.uid1.razorpayTokenId).toBe('tok_1');
   });

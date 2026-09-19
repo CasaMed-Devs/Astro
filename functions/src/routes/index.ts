@@ -14,6 +14,7 @@ import {
   startTrialPayment,
   upgradeNowHandler,
   verifyReportPayment,
+  verifyTrialPaymentHandler,
   verifyTopUpPayment,
 } from '../controllers/payment.controller';
 import { deleteAccount } from '../controllers/account.controller';
@@ -56,6 +57,7 @@ router.post('/chats/:chatId/messages', requireAuth, asyncHandler(sendMessage));
 
 router.post('/payments/trial/start', requireAuth, asyncHandler(startTrialPayment));
 router.post('/payments/trial/order', requireAuth, asyncHandler(startTrialOrderHandler));
+router.post('/payments/trial/verify', requireAuth, asyncHandler(verifyTrialPaymentHandler));
 router.post('/payments/subscription/upgrade-now', requireAuth, asyncHandler(upgradeNowHandler));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));

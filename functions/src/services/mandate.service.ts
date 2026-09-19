@@ -6,7 +6,11 @@ import {
   chargeRecurringToken,
   createRecurringOrder,
   createRecurringRegistration,
+  fetchOrder,
+  findMandateTokenId,
+  verifyPaymentSignature,
   type CreatedRecurringOrder,
+  type VerifySignatureInput,
 } from './razorpay.service';
 import { creditWallet } from './credits.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
@@ -15,6 +19,18 @@ import type { MandateMethod, UserProfileRecord } from '../types';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_MS = 30 * DAY_MS;
 const GRACE_PERIOD_MS = 3 * DAY_MS;
+
+/**
+ * Keeps subscriptions/{uid} — the per-user subscription record — in step with
+ * the mandate state on users/{uid}. Individual charges are logged in
+ * `payments` (creditWallet); this doc holds the current plan state.
+ */
+async function recordSubscription(uid: string, patch: Record<string, unknown>): Promise<void> {
+  await adminFirestore()
+    .collection('subscriptions')
+    .doc(uid)
+    .set({ ...patch, userId: uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
 
 async function getUserOrThrow(uid: string): Promise<UserProfileRecord> {
   const snapshot = await adminFirestore().collection('users').doc(uid).get();
@@ -102,6 +118,14 @@ async function startRegistration(
     { merge: true },
   );
 
+  await recordSubscription(uid, {
+    planId: purpose === 'trial' ? 'trial' : 'plus',
+    status: 'pending',
+    mandateMethod: method,
+    razorpayCustomerId: registration.customerId,
+    registrationAmount: amountRupees,
+  });
+
   return { registrationLinkId: registration.registrationLinkId, shortUrl: registration.shortUrl };
 }
 
@@ -146,7 +170,42 @@ export async function startTrialOrder(
     { merge: true },
   );
 
+  await recordSubscription(uid, {
+    planId: 'trial',
+    status: 'pending',
+    mandateMethod: method,
+    razorpayCustomerId: order.customerId,
+    registrationAmount: trial.amount,
+  });
+
   return order;
+}
+
+/**
+ * Synchronous confirmation right after the in-app checkout succeeds, so the
+ * app doesn't depend solely on the webhook. Verifies the checkout signature
+ * and order ownership, then runs the same idempotent completion the webhook
+ * uses. Returns 'pending' if Razorpay hasn't issued the mandate token yet
+ * (the webhook will finish it).
+ */
+export async function verifyTrialRegistration(
+  uid: string,
+  input: VerifySignatureInput,
+): Promise<{ status: 'ok' | 'pending' }> {
+  verifyPaymentSignature(input);
+
+  const order = await fetchOrder(input.orderId);
+  const notes = order.notes as Record<string, string> | undefined;
+  if (notes?.uid !== uid || notes?.purpose !== 'trial') {
+    throw new ValidationError('This order does not belong to a trial for this account.');
+  }
+
+  const user = await getUserOrThrow(uid);
+  const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
+  if (!tokenId) return { status: 'pending' };
+
+  await completeMandateRegistration(uid, tokenId, input.paymentId, 'trial');
+  return { status: 'ok' };
 }
 
 /**
@@ -199,6 +258,19 @@ export async function completeMandateRegistration(
 
   if (alreadyProcessed) return;
 
+  const subscriptionAmount = await getSubscriptionAmount();
+  await recordSubscription(uid, {
+    planId: purpose === 'trial' ? 'trial' : 'plus',
+    status: purpose === 'trial' ? 'trialing' : 'active',
+    razorpayTokenId: tokenId,
+    lastPaymentId: paymentId,
+    currentPeriodStart: Timestamp.now(),
+    nextAutoDebitAt: Timestamp.fromMillis(
+      Date.now() + (purpose === 'trial' ? DAY_MS : MONTH_MS),
+    ),
+    nextAutoDebitAmount: subscriptionAmount.amount,
+  });
+
   if (purpose === 'trial') {
     await grantTrialCreditsOnce(uid);
   } else {
@@ -207,7 +279,7 @@ export async function completeMandateRegistration(
     // Keyed by the plain paymentId (creditWallet's own convention), distinct
     // from the registration_ ledger doc written above.
     const rupeesPerCredit = await getRupeesPerCredit();
-    await creditWallet(uid, (await getSubscriptionAmount()).amount, paymentId, 1 / rupeesPerCredit);
+    await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
   }
 }
 
@@ -253,7 +325,23 @@ export async function upgradeNow(uid: string, method?: MandateMethod): Promise<U
   );
 
   const rupeesPerCredit = await getRupeesPerCredit();
-  const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit);
+  const result = await creditWallet(
+    uid,
+    subscriptionAmount.amount,
+    paymentId,
+    1 / rupeesPerCredit,
+    'subscription',
+  );
+  await recordSubscription(uid, {
+    planId: 'plus',
+    status: 'active',
+    lastPaymentId: paymentId,
+    lastPaymentAmount: subscriptionAmount.amount,
+    lastPaymentAt: Timestamp.now(),
+    currentPeriodStart: Timestamp.now(),
+    nextAutoDebitAt: Timestamp.fromMillis(Date.now() + MONTH_MS),
+    nextAutoDebitAmount: subscriptionAmount.amount,
+  });
 
   // Restart the 30-day cycle from today, regardless of whatever was pending.
   await adminFirestore()
@@ -313,7 +401,17 @@ export async function processDueAutoDebits(): Promise<{ charged: number; failed:
       );
 
       const rupeesPerCredit = await getRupeesPerCredit();
-      await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit);
+      await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+      await recordSubscription(uid, {
+        planId: 'plus',
+        status: 'active',
+        lastPaymentId: paymentId,
+        lastPaymentAmount: amount,
+        lastPaymentAt: Timestamp.now(),
+        currentPeriodStart: Timestamp.now(),
+        nextAutoDebitAt: Timestamp.fromMillis(Date.now() + MONTH_MS),
+        nextAutoDebitAmount: (await getSubscriptionAmount()).amount,
+      });
 
       await doc.ref.set(
         {
@@ -328,6 +426,10 @@ export async function processDueAutoDebits(): Promise<{ charged: number; failed:
       charged += 1;
     } catch (error) {
       failed += 1;
+      await recordSubscription(uid, {
+        status: 'past_due',
+        lastPaymentFailureReason: error instanceof Error ? error.message : 'Charge failed.',
+      }).catch(() => undefined);
       await doc.ref.set(
         {
           graceUntil: Timestamp.fromMillis(Date.now() + GRACE_PERIOD_MS),
@@ -357,12 +459,13 @@ export async function downgradeExpiredGracePeriods(): Promise<number> {
     .get();
 
   await Promise.all(
-    snapshot.docs.map((doc) =>
-      doc.ref.set(
+    snapshot.docs.map(async (doc) => {
+      await doc.ref.set(
         { mandateStatus: 'cancelled', updatedAt: FieldValue.serverTimestamp() },
         { merge: true },
-      ),
-    ),
+      );
+      await recordSubscription(doc.id, { status: 'cancelled' });
+    }),
   );
 
   return snapshot.size;
