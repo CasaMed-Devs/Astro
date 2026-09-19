@@ -19,8 +19,10 @@ import {
 import { creditWallet } from '../services/credits.service';
 import {
   startTrial,
+  startSubscriptionOrder,
   startTrialOrder,
   upgradeNow,
+  verifySubscriptionPayment,
   verifyTrialRegistration,
 } from '../services/mandate.service';
 import { generateAndStoreReport, markReportPending } from '../services/report.service';
@@ -73,6 +75,21 @@ export async function startTrialOrderHandler(req: Request, res: Response): Promi
 
   const { method } = startTrialSchema.parse(req.body);
   res.json(await startTrialOrder(req.uid, method));
+}
+
+/** Rs.299 subscription via the in-app Razorpay Checkout (always a real payment). */
+export async function startSubscriptionOrderHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const { method } = upgradeNowSchema.parse(req.body);
+  res.json(await startSubscriptionOrder(req.uid, method));
+}
+
+export async function verifySubscriptionPaymentHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const input = verifySchema.parse(req.body);
+  res.json(await verifySubscriptionPayment(req.uid, input));
 }
 
 /** Confirms the Rs.1 trial right after checkout (the webhook remains the fallback). */

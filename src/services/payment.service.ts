@@ -98,6 +98,22 @@ export function verifyTrialPayment(input: VerifyPaymentInput): Promise<{ status:
   return apiClient.post('/payments/trial/verify', input);
 }
 
+/**
+ * "Subscribe" via the native Razorpay Checkout. `customerId` is set only when
+ * the order also registers an auto-debit mandate (no active one yet).
+ */
+export function startSubscriptionOrder(
+  method?: MandateMethod,
+): Promise<PaymentOrder & { customerId?: string }> {
+  return apiClient.post('/payments/subscription/order', { method });
+}
+
+export function verifySubscriptionPayment(
+  input: VerifyPaymentInput,
+): Promise<{ status: 'ok' | 'pending' }> {
+  return apiClient.post('/payments/subscription/verify', input);
+}
+
 export function upgradeNow(method?: MandateMethod): Promise<UpgradeNowResult> {
   return apiClient.post<UpgradeNowResult>('/payments/subscription/upgrade-now', { method });
 }

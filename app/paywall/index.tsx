@@ -51,11 +51,24 @@ export default function PaywallScreen() {
 
   // A user who already set up their mandate has nothing to trial — send
   // them to the Rs.299 "add credits" screen instead.
+  // Skipped while we're finishing our own trial payment (see finishTrial):
+  // refreshProfile() flips trialCreditsClaimed, and redirecting here as well
+  // as to home would run two router.replace calls at once — the racing
+  // native view mounts crash Fabric ("addViewAt: child already has a parent").
+  const finishingRef = useRef(false);
   useEffect(() => {
-    if (profile?.trialCreditsClaimed) {
+    if (profile?.trialCreditsClaimed && !finishingRef.current) {
       router.replace('/paywall/upgrade');
     }
   }, [profile?.trialCreditsClaimed]);
+
+  // Single exit after a successful trial: refresh, then navigate exactly once.
+  const finishTrial = async () => {
+    finishingRef.current = true;
+    stopPolling();
+    await refreshProfile().catch(() => {});
+    router.replace('/(tabs)/home');
+  };
 
   useEffect(() => {
     fetchAstrologerProfiles()
@@ -113,10 +126,8 @@ export default function PaywallScreen() {
       }
       try {
         const mandate = await getMandate();
-        if (mandate.trialCreditsClaimed) {
-          stopPolling();
-          await refreshProfile();
-          router.replace('/(tabs)/home');
+        if (mandate.trialCreditsClaimed && !finishingRef.current) {
+          await finishTrial();
         }
       } catch {
         // Transient — next tick retries.
@@ -141,8 +152,7 @@ export default function PaywallScreen() {
       // until its webhook completes the registration.
       const verification = await verifyTrialPayment(result).catch(() => ({ status: 'pending' as const }));
       if (verification.status === 'ok') {
-        await refreshProfile();
-        router.replace('/(tabs)/home');
+        await finishTrial();
       } else {
         startPollingForConfirmation();
       }

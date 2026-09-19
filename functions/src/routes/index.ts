@@ -10,10 +10,12 @@ import {
   getPublicPricing,
   getTopUpConfigHandler,
   getTopUpHistory,
+  startSubscriptionOrderHandler,
   startTrialOrderHandler,
   startTrialPayment,
   upgradeNowHandler,
   verifyReportPayment,
+  verifySubscriptionPaymentHandler,
   verifyTrialPaymentHandler,
   verifyTopUpPayment,
 } from '../controllers/payment.controller';
@@ -57,6 +59,8 @@ router.post('/chats/:chatId/messages', requireAuth, asyncHandler(sendMessage));
 
 router.post('/payments/trial/start', requireAuth, asyncHandler(startTrialPayment));
 router.post('/payments/trial/order', requireAuth, asyncHandler(startTrialOrderHandler));
+router.post('/payments/subscription/order', requireAuth, asyncHandler(startSubscriptionOrderHandler));
+router.post('/payments/subscription/verify', requireAuth, asyncHandler(verifySubscriptionPaymentHandler));
 router.post('/payments/trial/verify', requireAuth, asyncHandler(verifyTrialPaymentHandler));
 router.post('/payments/subscription/upgrade-now', requireAuth, asyncHandler(upgradeNowHandler));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));

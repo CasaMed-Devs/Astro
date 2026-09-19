@@ -5,10 +5,12 @@ import { getRupeesPerCredit, getSubscriptionAmount, getTrialAmount } from '../co
 import {
   chargeRecurringToken,
   createRecurringOrder,
+  createOrder,
   createRecurringRegistration,
   fetchOrder,
   findMandateTokenId,
   verifyPaymentSignature,
+  type CreatedOrder,
   type CreatedRecurringOrder,
   type VerifySignatureInput,
 } from './razorpay.service';
@@ -205,6 +207,126 @@ export async function verifyTrialRegistration(
   if (!tokenId) return { status: 'pending' };
 
   await completeMandateRegistration(uid, tokenId, input.paymentId, 'trial');
+  return { status: 'ok' };
+}
+
+export interface SubscriptionOrder extends CreatedOrder {
+  // Set when this order also registers an auto-debit mandate (no active one yet).
+  customerId?: string;
+}
+
+/**
+ * "Subscribe Rs.299" through the in-app Razorpay Checkout — the user always
+ * completes a real payment; credits are only granted by verifySubscription-
+ * Payment (or the webhook) after Razorpay confirms it. With an active mandate
+ * this is a plain one-time order (the existing auto-debit cycle restarts once
+ * paid); without one, it is a recurring-enabled order that also registers the
+ * mandate at the subscription amount.
+ */
+export async function startSubscriptionOrder(
+  uid: string,
+  method?: MandateMethod,
+): Promise<SubscriptionOrder> {
+  const user = await getUserOrThrow(uid);
+  const { amount, currency } = await getSubscriptionAmount();
+  const hasActiveMandate =
+    user.mandateStatus === 'active' && !!user.razorpayCustomerId && !!user.razorpayTokenId;
+
+  if (hasActiveMandate) {
+    return createOrder(amount, currency, `subscription_${uid}_${Date.now()}`, {
+      uid,
+      purpose: 'subscription',
+    });
+  }
+
+  if (!method) {
+    throw new ValidationError('A payment method is required to set up auto-debit.');
+  }
+
+  const order = await createRecurringOrder(
+    user.name ?? 'Astro101 User',
+    `${uid}@users.astro101.app`,
+    user.phoneNumber,
+    amount,
+    method,
+    `subscription_${uid}_${Date.now()}`,
+    { uid, purpose: 'direct_subscription' },
+    user.razorpayCustomerId,
+  );
+
+  await adminFirestore().collection('users').doc(uid).set(
+    {
+      razorpayCustomerId: order.customerId,
+      mandateMethod: method,
+      mandateStatus: 'pending',
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  await recordSubscription(uid, {
+    planId: 'plus',
+    status: 'pending',
+    mandateMethod: method,
+    razorpayCustomerId: order.customerId,
+    registrationAmount: amount,
+  });
+
+  return order;
+}
+
+/**
+ * Confirms a paid subscription order (signature + ownership checked), then
+ * credits the wallet — idempotent per paymentId, so a retry or the webhook
+ * can't double-credit. Returns 'pending' only for the mandate-registering
+ * variant when Razorpay hasn't issued the token yet (the webhook finishes it).
+ */
+export async function verifySubscriptionPayment(
+  uid: string,
+  input: VerifySignatureInput,
+): Promise<{ status: 'ok' | 'pending' }> {
+  verifyPaymentSignature(input);
+
+  const order = await fetchOrder(input.orderId);
+  const notes = order.notes as Record<string, string> | undefined;
+  const purpose = notes?.purpose;
+  if (notes?.uid !== uid || (purpose !== 'subscription' && purpose !== 'direct_subscription')) {
+    throw new ValidationError('This order does not belong to a subscription for this account.');
+  }
+
+  if (purpose === 'direct_subscription') {
+    const user = await getUserOrThrow(uid);
+    const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
+    if (!tokenId) return { status: 'pending' };
+    await completeMandateRegistration(uid, tokenId, input.paymentId, 'direct_subscription');
+    return { status: 'ok' };
+  }
+
+  const { amount } = await getSubscriptionAmount();
+  const rupeesPerCredit = await getRupeesPerCredit();
+  const result = await creditWallet(uid, amount, input.paymentId, 1 / rupeesPerCredit, 'subscription');
+
+  if (!result.alreadyProcessed) {
+    const nextAutoDebitAt = Timestamp.fromMillis(Date.now() + MONTH_MS);
+    await adminFirestore().collection('users').doc(uid).set(
+      {
+        nextAutoDebitAt,
+        nextAutoDebitAmount: amount,
+        graceUntil: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    await recordSubscription(uid, {
+      planId: 'plus',
+      status: 'active',
+      lastPaymentId: input.paymentId,
+      lastPaymentAmount: amount,
+      lastPaymentAt: Timestamp.now(),
+      currentPeriodStart: Timestamp.now(),
+      nextAutoDebitAt,
+      nextAutoDebitAmount: amount,
+    });
+  }
   return { status: 'ok' };
 }
 

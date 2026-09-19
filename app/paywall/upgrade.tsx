@@ -1,38 +1,57 @@
 import { useEffect, useRef, useState } from 'react';
-import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Crown, X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Check, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
-import { getMandate, getPricing, upgradeNow } from '@/services/payment.service';
-import { colors, radii, spacing } from '@/constants/theme';
+import { fetchAstrologerProfiles } from '@/services/astrologers.service';
+import {
+  getMandate,
+  getPricing,
+  openRazorpayCheckout,
+  startSubscriptionOrder,
+  verifySubscriptionPayment,
+} from '@/services/payment.service';
+import type { AstrologerProfile } from '@/features/astrologers/types';
+import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
-import type { MandateMethod } from '@/types/firestore';
+
+// Only used when the user has no auto-debit mandate yet (skipped the trial):
+// the payment registers one at the subscription amount. UPI Autopay is the
+// default, same as the trial paywall.
+const REGISTRATION_METHOD = 'upi' as const;
+
+const HERO_GRADIENT = ['#FFF3E0', '#FDE7C8'] as const;
+
+const FEATURES = [
+  'Credits are added the moment your payment succeeds',
+  'Same 1-credit rate with every astrologer',
+  'Credits top up automatically every month',
+  'Cancel anytime, no questions asked',
+];
 
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
- * "Add credits" / early-upgrade screen. If the user already has an active
- * auto-debit mandate (the normal case, after the Rs.1 trial), this charges
- * Rs.299 immediately and restarts the 30-day cycle — cancelling whatever
- * day-2/monthly charge was pending. If they somehow have no mandate at all
- * (skipped the trial), this registers one directly at the subscription
- * amount instead.
+ * Subscription screen. Always opens Razorpay Checkout — credits are added
+ * only after the backend confirms a real, signature-verified payment. With an
+ * active auto-debit mandate this restarts the 30-day cycle; without one, the
+ * same payment also sets up auto-pay.
  */
 export default function UpgradeScreen() {
-  const { profile, refreshProfile } = useAuth();
+  const { session, profile, refreshProfile } = useAuth();
   const [amount, setAmount] = useState<number | undefined>(undefined);
   const [currency, setCurrency] = useState<string | undefined>(undefined);
-  const [hasMandate, setHasMandate] = useState<boolean | null>(null);
-  const [method, setMethod] = useState<MandateMethod>('upi');
+  const [avatarPersonas, setAvatarPersonas] = useState<AstrologerProfile[]>([]);
   const [processing, setProcessing] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successCredits, setSuccessCredits] = useState<number | null>(null);
+  const [succeeded, setSucceeded] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -45,9 +64,9 @@ export default function UpgradeScreen() {
         setAmount(undefined);
         setCurrency(undefined);
       });
-    getMandate()
-      .then((mandate) => setHasMandate(mandate.mandateStatus === 'active'))
-      .catch(() => setHasMandate(false));
+    fetchAstrologerProfiles()
+      .then((profiles) => setAvatarPersonas(profiles.slice(0, 6)))
+      .catch(() => setAvatarPersonas([]));
   }, []);
 
   useEffect(() => {
@@ -64,6 +83,14 @@ export default function UpgradeScreen() {
     setWaiting(false);
   };
 
+  // Single success exit: refresh once, then swap to the success view (no
+  // navigation here, so nothing can race the native view tree).
+  const finish = async () => {
+    stopPolling();
+    await refreshProfile().catch(() => {});
+    setSucceeded(true);
+  };
+
   const startPollingForRegistration = () => {
     setWaiting(true);
     const startedAt = Date.now();
@@ -76,11 +103,7 @@ export default function UpgradeScreen() {
       }
       try {
         const mandate = await getMandate();
-        if (mandate.mandateStatus === 'active') {
-          stopPolling();
-          await refreshProfile();
-          router.back();
-        }
+        if (mandate.mandateStatus === 'active') await finish();
       } catch {
         // Transient — next tick retries.
       }
@@ -91,12 +114,20 @@ export default function UpgradeScreen() {
     setProcessing(true);
     setError(null);
     try {
-      const result = await upgradeNow(hasMandate ? undefined : method);
-      if (result.status === 'charged') {
-        setSuccessCredits(result.creditsAwarded ?? 0);
-        await refreshProfile();
-      } else if (result.shortUrl) {
-        await Linking.openURL(result.shortUrl);
+      const order = await startSubscriptionOrder(REGISTRATION_METHOD);
+      const result = await openRazorpayCheckout(order, {
+        name: 'Astro101',
+        description: 'Astro101 Plus subscription',
+        contact: session?.phoneNumber ?? undefined,
+        customerId: order.customerId,
+        method: order.customerId ? REGISTRATION_METHOD : undefined,
+      });
+      const verification = await verifySubscriptionPayment(result).catch(() => ({
+        status: 'pending' as const,
+      }));
+      if (verification.status === 'ok') {
+        await finish();
+      } else {
         startPollingForRegistration();
       }
     } catch (err) {
@@ -106,84 +137,108 @@ export default function UpgradeScreen() {
     }
   };
 
-  // Closing this screen without paying routes to top-up instead, per the
-  // product decision — an alternative way to keep chatting right now.
+  // Closing without paying offers top-up instead — another way to keep chatting.
   const handleClose = () => router.replace('/wallet/topup');
 
-  if (successCredits != null) {
+  const pricingReady = amount != null && currency != null;
+  const currencySymbol = currency === 'INR' ? '₹' : '';
+
+  if (succeeded) {
     return (
       <Screen>
-        <Pressable onPress={() => router.back()} style={styles.closeButton}>
-          <X size={18} color={colors.textPrimary} />
-        </Pressable>
         <View style={styles.successContainer}>
-          <AppText variant="displayMd">You&apos;re all set</AppText>
-          <AppText variant="body" color={colors.textSecondary} style={styles.successBody}>
-            {successCredits} credits added. New balance: {profile?.credits ?? '—'} credits.
+          <View style={styles.successIcon}>
+            <Check size={32} color={colors.primary} strokeWidth={3} />
+          </View>
+          <AppText style={styles.headline}>You&apos;re all set</AppText>
+          <AppText style={styles.successBody}>
+            Your subscription is active. New balance: {profile?.credits ?? '—'} credits.
           </AppText>
-          <Button label="Done" onPress={() => router.back()} />
+          <Button
+            label="Done"
+            onPress={() => router.replace('/(tabs)/home')}
+            style={styles.ctaButton}
+          />
         </View>
       </Screen>
     );
   }
 
-  const pricingReady = amount != null && currency != null && hasMandate !== null;
-
   return (
     <Screen scroll>
       <Pressable onPress={handleClose} style={styles.closeButton}>
-        <X size={18} color={colors.textPrimary} />
+        <X size={20} color={colors.textPrimary} />
       </Pressable>
+
+      <LinearGradient
+        colors={HERO_GRADIENT}
+        style={styles.heroCard}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.heroGlyphRow}>
+          <AppText style={styles.heroGlyph}>ॐ</AppText>
+          <AppText style={styles.heroGlyphTitle}>जन्म कुंडली</AppText>
+          <AppText style={styles.heroGlyph}>ॐ</AppText>
+        </View>
+        {avatarPersonas.length > 0 ? (
+          <>
+            <View style={styles.avatarStrip}>
+              {avatarPersonas.map((persona) => (
+                <Image key={persona.id} source={{ uri: persona.photoUrl }} style={styles.avatar} />
+              ))}
+            </View>
+            <AppText style={styles.avatarCaption}>
+              Kundali, tarot & palmistry experts ready to read your chart
+            </AppText>
+          </>
+        ) : null}
+      </LinearGradient>
 
       <View style={styles.header}>
         <View style={styles.badge}>
-          <Crown size={16} color={colors.primary} />
-          <AppText variant="label" color={colors.primary}>
-            ASTRO101
-          </AppText>
+          <Sparkles size={16} color={colors.primary} />
+          <AppText style={styles.badgeText}>ASTRO101 PLUS</AppText>
         </View>
-        <AppText variant="displayMd">Add {currency === 'INR' ? '₹' : ''}299 worth of credits</AppText>
-        <AppText variant="bodySmall" color={colors.textSecondary}>
-          {hasMandate
-            ? 'This restarts your 30-day auto-debit cycle from today.'
-            : 'Set up auto-pay to charge this now and every 30 days after.'}
+        <AppText style={styles.headline}>
+          Keep talking, <AppText style={styles.headlineAccent}>pay less</AppText>
+        </AppText>
+        <AppText style={styles.subtext}>
+          Subscribe for a flat monthly amount and get your credits instantly, so the conversation
+          never stops.
         </AppText>
       </View>
 
-      {pricingReady ? (
-        <View style={styles.priceCard}>
-          <AppText variant="cardTitle">Pay now</AppText>
-          <AppText variant="displayMd" color={colors.primaryDark}>
-            {currency === 'INR' ? '₹' : ''}
-            {amount}
-          </AppText>
-        </View>
-      ) : (
-        <View style={styles.priceCard}>
-          <AppText variant="cardTitle">Loading...</AppText>
-        </View>
-      )}
+      <View style={styles.features}>
+        {FEATURES.map((feature) => (
+          <View key={feature} style={styles.featureRow}>
+            <View style={styles.featureIconWrap}>
+              <Check size={16} color={colors.primary} strokeWidth={3} />
+            </View>
+            <AppText style={styles.featureText}>{feature}</AppText>
+          </View>
+        ))}
+      </View>
 
-      {pricingReady && !hasMandate ? (
-        <View style={styles.methodRow}>
-          <Pressable
-            style={[styles.methodChip, method === 'upi' && styles.methodChipActive]}
-            onPress={() => setMethod('upi')}
-          >
-            <AppText variant="label" color={method === 'upi' ? colors.onGradientText : colors.textPrimary}>
-              UPI Autopay
-            </AppText>
-          </Pressable>
-          <Pressable
-            style={[styles.methodChip, method === 'card' && styles.methodChipActive]}
-            onPress={() => setMethod('card')}
-          >
-            <AppText variant="label" color={method === 'card' ? colors.onGradientText : colors.textPrimary}>
-              Card
-            </AppText>
-          </Pressable>
+      <View style={styles.priceCard}>
+        <View style={styles.priceAccentBar} />
+        <View style={styles.priceCardBody}>
+          {pricingReady ? (
+            <>
+              <View style={styles.priceCardCopy}>
+                <AppText style={styles.priceCardTitle}>Astro101 Plus</AppText>
+                <AppText style={styles.priceCardSubtitle}>Per month · Cancel anytime</AppText>
+              </View>
+              <AppText style={styles.priceValue}>
+                {currencySymbol}
+                {amount}
+              </AppText>
+            </>
+          ) : (
+            <AppText style={styles.priceCardTitle}>Loading...</AppText>
+          )}
         </View>
-      ) : null}
+      </View>
 
       {error ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
@@ -191,23 +246,18 @@ export default function UpgradeScreen() {
         </AppText>
       ) : null}
 
-      {waiting ? (
-        <AppText variant="bodySmall" color={colors.textSecondary} style={styles.error}>
-          Waiting for payment confirmation... complete it in the browser tab that opened.
-        </AppText>
-      ) : null}
+      {waiting ? <AppText style={styles.waitingText}>Confirming your payment...</AppText> : null}
 
       <View style={styles.footer}>
         <Button
-          label={hasMandate ? 'Subscribe now' : 'Set up auto-pay & subscribe'}
+          label={pricingReady ? `Subscribe for ${currencySymbol}${amount}` : 'Subscribe'}
           onPress={handleSubscribe}
           loading={processing || waiting}
-          disabled={!pricingReady}
+          disabled={!pricingReady || !session}
+          style={styles.ctaButton}
         />
         <Pressable onPress={handleClose}>
-          <AppText variant="body" color={colors.textSecondary} style={styles.skipLabel}>
-            Top up instead
-          </AppText>
+          <AppText style={styles.skipLabel}>Top up instead</AppText>
         </Pressable>
       </View>
     </Screen>
@@ -217,40 +267,166 @@ export default function UpgradeScreen() {
 const styles = StyleSheet.create({
   closeButton: {
     alignSelf: 'flex-end',
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.sm,
+    ...shadows.card,
   },
-  header: { gap: spacing.sm, marginTop: spacing.md },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  heroCard: {
+    marginTop: spacing.md,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    ...shadows.card,
+  },
+  heroGlyphRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  heroGlyph: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.primary },
+  heroGlyphTitle: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.textPrimary },
+  avatarStrip: { flexDirection: 'row' },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: radii.pill,
+    marginLeft: -14,
+    borderWidth: 3,
+    borderColor: colors.surface,
+  },
+  avatarCaption: {
+    marginTop: spacing.md,
+    textAlign: 'center',
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.md,
+  },
+  header: { gap: spacing.sm, marginTop: spacing.xxl },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+  },
+  badgeText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 13,
+    letterSpacing: 0.5,
+    color: colors.primary,
+  },
+  headline: {
+    fontFamily: fonts.display,
+    fontSize: 38,
+    lineHeight: 44,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  headlineAccent: {
+    fontFamily: fonts.display,
+    fontSize: 38,
+    lineHeight: 44,
+    color: colors.primary,
+  },
+  subtext: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  features: { gap: spacing.lg, marginTop: spacing.xxl },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  featureIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureText: {
+    flex: 1,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.textPrimary,
+  },
   priceCard: {
-    marginTop: spacing.xl,
+    marginTop: spacing.xxl,
     backgroundColor: colors.surface,
     borderRadius: radii.lg,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  priceAccentBar: { width: 6, backgroundColor: colors.primary },
+  priceCardBody: {
+    flex: 1,
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  methodRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
-  methodChip: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  priceCardCopy: { flex: 1, gap: 2 },
+  priceCardTitle: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 18,
+    color: colors.textPrimary,
   },
-  methodChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  error: { marginTop: spacing.md },
-  footer: { marginTop: spacing.xl, marginBottom: spacing.xxl, gap: spacing.md },
-  skipLabel: { textAlign: 'center' },
-  successContainer: { flex: 1, justifyContent: 'center', gap: spacing.md, alignItems: 'center' },
-  successBody: { textAlign: 'center' },
+  priceCardSubtitle: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  priceValue: {
+    fontFamily: fonts.display,
+    fontSize: 34,
+    color: colors.primaryDark,
+  },
+  error: { marginTop: spacing.md, fontSize: 14 },
+  waitingText: {
+    marginTop: spacing.md,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  footer: { marginTop: spacing.xxl, marginBottom: spacing.xxl, gap: spacing.md },
+  ctaButton: { height: 56, alignSelf: 'stretch' },
+  skipLabel: {
+    textAlign: 'center',
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 15,
+    color: colors.textSecondary,
+  },
+  successContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.md },
+  successIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successBody: {
+    textAlign: 'center',
+    fontFamily: fonts.bodyMedium,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
 });
