@@ -9,6 +9,8 @@ import {
   createTopUpOrder,
   getPublicPricing,
   getTopUpConfigHandler,
+  getTopUpHistory,
+  startTrialOrderHandler,
   startTrialPayment,
   upgradeNowHandler,
   verifyReportPayment,
@@ -53,11 +55,13 @@ router.get('/chats/:chatId/messages', requireAuth, asyncHandler(getMessages));
 router.post('/chats/:chatId/messages', requireAuth, asyncHandler(sendMessage));
 
 router.post('/payments/trial/start', requireAuth, asyncHandler(startTrialPayment));
+router.post('/payments/trial/order', requireAuth, asyncHandler(startTrialOrderHandler));
 router.post('/payments/subscription/upgrade-now', requireAuth, asyncHandler(upgradeNowHandler));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));
 router.get('/payments/pricing', requireAuth, asyncHandler(getPublicPricing));
 router.get('/payments/topup/config', requireAuth, asyncHandler(getTopUpConfigHandler));
+router.get('/payments/history', requireAuth, asyncHandler(getTopUpHistory));
 router.post('/payments/topup/order', requireAuth, asyncHandler(createTopUpOrder));
 router.post('/payments/topup/verify', requireAuth, asyncHandler(verifyTopUpPayment));
 

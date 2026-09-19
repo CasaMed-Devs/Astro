@@ -1,40 +1,76 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { X } from 'lucide-react-native';
+import { ArrowLeft, Wallet, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
+import { Card } from '@/components/cards/Card';
 import { Input } from '@/components/forms/Input';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import {
   createTopUpOrder,
+  getPricing,
   getTopUpConfig,
+  getTopUpHistory,
   openRazorpayCheckout,
   verifyTopUpPayment,
+  type PublicPricing,
   type TopUpConfig,
+  type TopUpHistoryItem,
 } from '@/services/payment.service';
-import { colors, radii, spacing } from '@/constants/theme';
+import { colors, fonts, radii, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
 
 export default function TopUpScreen() {
   const { session, profile, refreshProfile } = useAuth();
   const [config, setConfig] = useState<TopUpConfig | null>(null);
+  const [pricing, setPricing] = useState<PublicPricing | null>(null);
+  const [history, setHistory] = useState<TopUpHistoryItem[] | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null); // rupees
   const [customAmount, setCustomAmount] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCredits, setSuccessCredits] = useState<number | null>(null);
 
+  const loadHistory = useCallback(() => {
+    setHistoryError(false);
+    getTopUpHistory()
+      .then(setHistory)
+      .catch(() => {
+        setHistory((prev) => prev ?? []);
+        setHistoryError(true);
+      });
+  }, []);
+
   useEffect(() => {
     getTopUpConfig()
       .then(setConfig)
       .catch(() => setError('Could not load top-up options. Please try again.'));
-  }, []);
+    getPricing()
+      .then(setPricing)
+      .catch(() => undefined);
+    loadHistory();
+  }, [loadHistory]);
 
   const minRupees = config ? config.minAmount : null;
   const maxRupees = config ? config.maxAmount : null;
+  const currencySymbol = !config || config.currency === 'INR' ? '₹' : '';
   const amountRupees = selectedAmount ?? (customAmount ? Number(customAmount) : null);
   const amountValid =
     amountRupees != null &&
@@ -42,6 +78,10 @@ export default function TopUpScreen() {
     maxRupees != null &&
     amountRupees >= minRupees &&
     amountRupees <= maxRupees;
+
+  const rupeesPerCredit = config?.rupeesPerCredit ?? pricing?.rupeesPerCredit ?? 1;
+  const balanceRupees = profile ? Math.round(profile.credits * rupeesPerCredit) : null;
+  const reportAmount = pricing?.report.amount;
 
   const handleSelectPreset = (rupees: number) => {
     setSelectedAmount(rupees);
@@ -56,7 +96,12 @@ export default function TopUpScreen() {
   };
 
   const handlePay = async () => {
-    if (!amountValid || !amountRupees) return;
+    if (!amountValid || !amountRupees) {
+      if (config && amountRupees != null) {
+        setError(`Enter an amount between ${currencySymbol}${minRupees} and ${currencySymbol}${maxRupees}.`);
+      }
+      return;
+    }
     setProcessing(true);
     setError(null);
     try {
@@ -68,7 +113,10 @@ export default function TopUpScreen() {
       });
       const verification = await verifyTopUpPayment(result);
       setSuccessCredits(verification.creditsAwarded);
+      setSelectedAmount(null);
+      setCustomAmount('');
       await refreshProfile();
+      loadHistory();
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not complete the top-up.');
     } finally {
@@ -95,22 +143,33 @@ export default function TopUpScreen() {
 
   return (
     <Screen scroll>
-      <Pressable onPress={() => router.back()} style={styles.closeButton}>
-        <X size={18} color={colors.textPrimary} />
+      <Pressable onPress={() => router.back()} style={styles.backRow} hitSlop={8}>
+        <ArrowLeft size={18} color={colors.textSecondary} />
+        <AppText variant="body" color={colors.textSecondary}>
+          Astrologers
+        </AppText>
       </Pressable>
 
-      <View style={styles.header}>
-        <AppText variant="displayMd">Top up wallet</AppText>
-        <AppText variant="bodySmall" color={colors.textSecondary}>
-          Add money to your wallet to keep chatting with astrologers. Balance is used only inside
-          Astro101 and cannot be withdrawn or transferred.
-        </AppText>
-        {profile ? (
-          <AppText variant="body" color={colors.primaryDark} style={styles.currentBalance}>
-            Current balance: {profile.credits} credits
+      <Card style={styles.balanceCard}>
+        <View style={styles.balanceLabelRow}>
+          <Wallet size={16} color={colors.primary} />
+          <AppText variant="bodySmall" color={colors.textSecondary} style={styles.balanceLabel}>
+            WALLET BALANCE
           </AppText>
-        ) : null}
-      </View>
+        </View>
+        <AppText variant="displayLg" color={colors.primary}>
+          {balanceRupees != null ? `${currencySymbol}${balanceRupees}` : '—'}
+        </AppText>
+        <AppText variant="bodySmall" color={colors.textSecondary}>
+          {reportAmount
+            ? `Used for per-minute chats and the ${currencySymbol}${reportAmount} kundali unlock.`
+            : 'Used for chats with astrologers. Cannot be withdrawn or transferred.'}
+        </AppText>
+      </Card>
+
+      <AppText variant="displayMd" style={styles.sectionTitle}>
+        Recharge
+      </AppText>
 
       {config ? (
         <>
@@ -121,13 +180,10 @@ export default function TopUpScreen() {
                 <Pressable
                   key={rupees}
                   onPress={() => handleSelectPreset(rupees)}
-                  style={[styles.presetChip, active && styles.presetChipActive]}
+                  style={[styles.presetTile, active && styles.presetTileActive]}
                 >
-                  <AppText
-                    variant="label"
-                    color={active ? colors.onGradientText : colors.textPrimary}
-                  >
-                    {config.currency === 'INR' ? '₹' : ''}
+                  <AppText variant="cardTitle" color={colors.primary}>
+                    {currencySymbol}
                     {rupees}
                   </AppText>
                 </Pressable>
@@ -135,31 +191,33 @@ export default function TopUpScreen() {
             })}
           </View>
 
-          <AppText variant="label" color={colors.textSecondary} style={styles.customLabel}>
-            Or enter a custom amount ({config.currency === 'INR' ? '₹' : ''}
-            {minRupees}–{maxRupees})
+          <View style={styles.customRow}>
+            <Input
+              value={customAmount}
+              onChangeText={handleCustomAmountChange}
+              placeholder="Other amount"
+              keyboardType="number-pad"
+              containerStyle={styles.customInput}
+            />
+            <Button
+              label="Add"
+              onPress={handlePay}
+              loading={processing}
+              disabled={!amountValid}
+              style={styles.addButton}
+            />
+          </View>
+          <AppText variant="caption" color={colors.textMuted} style={styles.hint}>
+            Min {currencySymbol}
+            {minRupees} · Max {currencySymbol}
+            {maxRupees}
           </AppText>
-          <Input
-            value={customAmount}
-            onChangeText={handleCustomAmountChange}
-            placeholder={`Amount in ${config.currency}`}
-            keyboardType="number-pad"
-          />
 
           {error ? (
             <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
               {error}
             </AppText>
           ) : null}
-
-          <View style={styles.footer}>
-            <Button
-              label={amountRupees ? `Pay ${config.currency === 'INR' ? '₹' : ''}${amountRupees}` : 'Pay'}
-              onPress={handlePay}
-              loading={processing}
-              disabled={!amountValid}
-            />
-          </View>
         </>
       ) : error ? (
         <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
@@ -170,6 +228,37 @@ export default function TopUpScreen() {
           Loading top-up options...
         </AppText>
       )}
+
+      <AppText variant="label" color={colors.primary} style={styles.activityTitle}>
+        RECENT ACTIVITY
+      </AppText>
+      {history == null ? (
+        <AppText variant="bodySmall" color={colors.textSecondary}>
+          Loading...
+        </AppText>
+      ) : history.length === 0 ? (
+        <AppText variant="bodySmall" color={colors.textSecondary}>
+          {historyError ? 'Could not load activity.' : 'No recharges yet.'}
+        </AppText>
+      ) : (
+        <View style={styles.activityList}>
+          {history.map((item) => (
+            <View key={item.id} style={styles.activityRow}>
+              <View style={styles.activityText}>
+                <AppText variant="cardTitle">Wallet recharge</AppText>
+                <AppText variant="bodySmall" color={colors.textSecondary}>
+                  {formatDateTime(item.createdAt)}
+                </AppText>
+              </View>
+              <AppText variant="cardTitle" color={colors.primary}>
+                +{currencySymbol}
+                {item.amount}
+              </AppText>
+            </View>
+          ))}
+        </View>
+      )}
+      <View style={styles.bottomSpace} />
     </Screen>
   );
 }
@@ -185,29 +274,62 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: spacing.sm,
   },
-  header: { gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.xl },
-  currentBalance: { marginTop: spacing.sm },
-  presetGrid: {
+  backRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: spacing.sm,
-    marginBottom: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xl,
   },
-  presetChip: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
+  balanceCard: {
+    gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  presetChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  balanceLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  balanceLabel: { letterSpacing: 1.5 },
+  sectionTitle: { marginTop: spacing.xl, marginBottom: spacing.md, fontFamily: fonts.display },
+  presetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
   },
-  customLabel: { marginBottom: spacing.sm },
+  presetTile: {
+    width: '47.5%',
+    flexGrow: 1,
+    height: 62,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetTileActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceAlt,
+  },
+  customRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+  customInput: { flex: 1 },
+  addButton: { width: 96 },
+  hint: { marginTop: spacing.xs },
   error: { marginTop: spacing.md },
-  footer: { marginTop: spacing.xl, marginBottom: spacing.xxl },
+  activityTitle: { marginTop: spacing.xl, marginBottom: spacing.md, letterSpacing: 1 },
+  activityList: { gap: spacing.md },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  activityText: { gap: 2 },
+  bottomSpace: { height: spacing.xxl },
   successContainer: { flex: 1, justifyContent: 'center', gap: spacing.md, alignItems: 'center' },
   successBody: { textAlign: 'center' },
 });

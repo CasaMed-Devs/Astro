@@ -157,6 +157,58 @@ export async function createRecurringRegistration(
   return { registrationLinkId: raw.id, shortUrl: raw.short_url, customerId: raw.customer_id };
 }
 
+export interface CreatedRecurringOrder extends CreatedOrder {
+  customerId: string;
+}
+
+/**
+ * In-app alternative to createRecurringRegistration: creates (or matches) the
+ * Razorpay Customer and a recurring-enabled Order, so the app can open the
+ * native Checkout SDK directly (order_id + customer_id + recurring) instead
+ * of redirecting to the hosted registration-link page. The mandate/token is
+ * still confirmed via the same `payment.captured`/`token.confirmed` webhooks,
+ * keyed off the `uid`/`purpose` notes set here.
+ */
+export async function createRecurringOrder(
+  name: string,
+  email: string,
+  contact: string,
+  authorizationAmountRupees: number,
+  method: 'card' | 'upi',
+  receipt: string,
+  notes?: Record<string, string>,
+): Promise<CreatedRecurringOrder> {
+  const client = getClient();
+  const customer = await client.customers.create({
+    name,
+    email,
+    contact,
+    fail_existing: 0,
+  } as Parameters<Razorpay['customers']['create']>[0]);
+
+  const order = await client.orders.create({
+    amount: rupeesToPaise(authorizationAmountRupees),
+    currency: 'INR',
+    receipt,
+    customer_id: customer.id,
+    method,
+    token: {
+      max_amount: rupeesToPaise(MANDATE_MAX_AMOUNT_RUPEES),
+      expire_at: MANDATE_EXPIRE_AT,
+      frequency: 'as_presented',
+    },
+    notes,
+  } as unknown as Parameters<Razorpay['orders']['create']>[0]);
+
+  return {
+    orderId: order.id,
+    amount: Number(order.amount),
+    currency: order.currency,
+    keyId: env.razorpay.keyId!,
+    customerId: customer.id,
+  };
+}
+
 /**
  * Charges an already-registered mandate (card or UPI) for an arbitrary
  * amount at a time of our choosing — this is what the day-2 and monthly

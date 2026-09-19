@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Check, Sparkles, X } from 'lucide-react-native';
@@ -9,7 +9,12 @@ import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
-import { getMandate, getPricing, startTrialPayment } from '@/services/payment.service';
+import {
+  getMandate,
+  getPricing,
+  openRazorpayCheckout,
+  startTrialOrder,
+} from '@/services/payment.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
@@ -122,8 +127,16 @@ export default function PaywallScreen() {
     setProcessing(true);
     setError(null);
     try {
-      const registration = await startTrialPayment(REGISTRATION_METHOD);
-      await Linking.openURL(registration.shortUrl);
+      const order = await startTrialOrder(REGISTRATION_METHOD);
+      await openRazorpayCheckout(order, {
+        name: 'Astro101',
+        description: 'Start your trial',
+        contact: session?.phoneNumber ?? undefined,
+        customerId: order.customerId,
+        method: REGISTRATION_METHOD,
+      });
+      // The mandate and trial credits are granted by Razorpay's webhook, not
+      // by this client — poll until the backend confirms.
       startPollingForConfirmation();
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not start the trial.');
@@ -230,7 +243,7 @@ export default function PaywallScreen() {
 
       {waitingForConfirmation ? (
         <AppText style={styles.waitingText}>
-          Waiting for payment confirmation... complete it in the browser tab that opened.
+          Confirming your payment...
         </AppText>
       ) : null}
 

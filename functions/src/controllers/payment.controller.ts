@@ -17,7 +17,7 @@ import {
   verifyPaymentSignature,
 } from '../services/razorpay.service';
 import { creditWallet } from '../services/credits.service';
-import { startTrial, upgradeNow } from '../services/mandate.service';
+import { startTrial, startTrialOrder, upgradeNow } from '../services/mandate.service';
 import { generateAndStoreReport, markReportPending } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
@@ -60,6 +60,14 @@ export async function startTrialPayment(req: Request, res: Response): Promise<vo
   const { method } = startTrialSchema.parse(req.body);
   const result = await startTrial(req.uid, method);
   res.json(result);
+}
+
+/** Rs.1 trial via the in-app Razorpay Checkout SDK (no hosted-page redirect). */
+export async function startTrialOrderHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const { method } = startTrialSchema.parse(req.body);
+  res.json(await startTrialOrder(req.uid, method));
 }
 
 /**
@@ -123,6 +131,32 @@ export async function verifyTopUpPayment(req: Request, res: Response): Promise<v
 export async function getTopUpConfigHandler(_req: Request, res: Response): Promise<void> {
   const [config, rupeesPerCredit] = await Promise.all([getTopUpConfig(), getRupeesPerCredit()]);
   res.json({ ...config, rupeesPerCredit });
+}
+
+/** The signed-in user's most recent wallet top-ups, newest first. */
+export async function getTopUpHistory(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const snap = await adminFirestore()
+    .collection('payments')
+    .where('userId', '==', req.uid)
+    .where('purpose', '==', 'topup')
+    .orderBy('createdAt', 'desc')
+    .limit(20)
+    .get();
+
+  res.json(
+    snap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        amount: Number(data.amount ?? 0),
+        creditsAwarded: Number(data.creditsAwarded ?? 0),
+        status: String(data.status ?? 'paid'),
+        createdAt: data.createdAt?.toDate?.().toISOString() ?? null,
+      };
+    }),
+  );
 }
 
 /**

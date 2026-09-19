@@ -1,5 +1,3 @@
-import RazorpayCheckout from 'react-native-razorpay';
-
 import { apiClient } from '@/services/apiClient';
 import { AppError } from '@/utils/errors';
 import type { MandateDoc, MandateMethod } from '@/types/firestore';
@@ -41,6 +39,14 @@ export interface TopUpResult {
   newBalance: number;
 }
 
+export interface TopUpHistoryItem {
+  id: string;
+  amount: number; // Rupees
+  creditsAwarded: number;
+  status: string;
+  createdAt: string | null; // ISO
+}
+
 export interface StartRegistrationResult {
   registrationLinkId: string;
   shortUrl: string;
@@ -78,6 +84,15 @@ export function startTrialPayment(method: MandateMethod): Promise<StartRegistrat
  * no mandate exists yet) starts registration directly at the subscription
  * amount, skipping the trial. `method` is required only in the latter case.
  */
+export interface RecurringOrder extends PaymentOrder {
+  customerId: string;
+}
+
+/** Rs.1 trial mandate via the native Razorpay Checkout (no hosted-page redirect). */
+export function startTrialOrder(method: MandateMethod): Promise<RecurringOrder> {
+  return apiClient.post<RecurringOrder>('/payments/trial/order', { method });
+}
+
 export function upgradeNow(method?: MandateMethod): Promise<UpgradeNowResult> {
   return apiClient.post<UpgradeNowResult>('/payments/subscription/upgrade-now', { method });
 }
@@ -92,6 +107,10 @@ export function verifyReportPayment(input: VerifyPaymentInput): Promise<{ status
 
 export function getTopUpConfig(): Promise<TopUpConfig> {
   return apiClient.get<TopUpConfig>('/payments/topup/config');
+}
+
+export function getTopUpHistory(): Promise<TopUpHistoryItem[]> {
+  return apiClient.get<TopUpHistoryItem[]>('/payments/history');
 }
 
 export function createTopUpOrder(amountRupees: number): Promise<PaymentOrder> {
@@ -110,8 +129,27 @@ export function verifyTopUpPayment(input: VerifyPaymentInput): Promise<TopUpResu
  */
 export async function openRazorpayCheckout(
   order: PaymentOrder,
-  options: { name: string; description: string; contact?: string },
+  options: {
+    name: string;
+    description: string;
+    contact?: string;
+    // Set for recurring-mandate registration (customer-bound order).
+    customerId?: string;
+    method?: MandateMethod;
+  },
 ): Promise<VerifyPaymentInput> {
+  let RazorpayCheckout: typeof import('react-native-razorpay').default;
+  try {
+    // Loaded lazily: the native module is missing in Expo Go, and a top-level
+    // import would crash every screen that imports this service.
+    RazorpayCheckout = require('react-native-razorpay').default;
+  } catch {
+    throw new AppError(
+      'payment/cancelled',
+      'Payments need a development build of the app (not Expo Go).',
+    );
+  }
+
   try {
     const result = await RazorpayCheckout.open({
       key: order.keyId,
@@ -120,7 +158,10 @@ export async function openRazorpayCheckout(
       currency: order.currency,
       name: options.name,
       description: options.description,
-      prefill: options.contact ? { contact: options.contact } : undefined,
+      prefill: options.contact
+        ? { contact: options.contact, ...(options.method ? { method: options.method } : {}) }
+        : undefined,
+      ...(options.customerId ? { customer_id: options.customerId, recurring: '1' } : {}),
       theme: { color: '#B25F0A' },
     });
 

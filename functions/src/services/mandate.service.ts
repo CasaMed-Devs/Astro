@@ -2,7 +2,12 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { getRupeesPerCredit, getSubscriptionAmount, getTrialAmount } from '../config/plans';
-import { chargeRecurringToken, createRecurringRegistration } from './razorpay.service';
+import {
+  chargeRecurringToken,
+  createRecurringOrder,
+  createRecurringRegistration,
+  type CreatedRecurringOrder,
+} from './razorpay.service';
 import { creditWallet } from './credits.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateMethod, UserProfileRecord } from '../types';
@@ -106,6 +111,41 @@ export async function startTrial(
 ): Promise<StartRegistrationResult> {
   const trial = await getTrialAmount();
   return startRegistration(uid, method, trial.amount, 'trial');
+}
+
+/**
+ * Same as startTrial, but returns a Razorpay order for the in-app native
+ * Checkout SDK instead of a hosted registration-link URL. Mandate + trial
+ * credits are still granted only by the webhook.
+ */
+export async function startTrialOrder(
+  uid: string,
+  method: MandateMethod,
+): Promise<CreatedRecurringOrder> {
+  const user = await getUserOrThrow(uid);
+  const trial = await getTrialAmount();
+
+  const order = await createRecurringOrder(
+    user.name ?? 'Astro101 User',
+    `${uid}@users.astro101.app`,
+    user.phoneNumber,
+    trial.amount,
+    method,
+    `trial_${uid}_${Date.now()}`,
+    { uid, purpose: 'trial' },
+  );
+
+  await adminFirestore().collection('users').doc(uid).set(
+    {
+      razorpayCustomerId: order.customerId,
+      mandateMethod: method,
+      mandateStatus: 'pending',
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return order;
 }
 
 /**
