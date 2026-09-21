@@ -41,6 +41,11 @@ export interface UserProfileRecord {
   // Set once the one-time Rs.49 kundali payment is verified — lifetime access.
   kundaliUnlocked?: boolean;
   kundaliUnlockedAt?: FirebaseFirestore.Timestamp;
+  // Links to the payment records (maintained by transactions.service).
+  // subscriptionId = subscriptions/{id} (one doc per user, so it equals uid).
+  subscriptionId?: string;
+  lastTransactionId?: string; // transactions/{id}, the user's newest payment
+  transactionCount?: number;
 }
 
 export type ReportStatus = 'pending' | 'ready' | 'failed';

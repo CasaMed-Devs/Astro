@@ -91,7 +91,8 @@ Source: `functions/src/services/transactions.service.ts` (`recordTransaction`). 
 
 | Field | Type | Notes |
 |---|---|---|
-| `userId`, `paymentId`, `orderId` | string | `orderId` may be null (e.g. some auto-debits) |
+| `userId`, `paymentId`, `orderId` | string | Links to `users/{userId}` and `paymentOrders/{orderId}`. `orderId` may be null (e.g. some auto-debits) |
+| `subscriptionId` | string? | Links to `subscriptions/{id}` (equals `userId`); null for one-off top-ups and kundali unlocks |
 | `purpose` | `'topup' \| 'trial' \| 'subscription' \| 'direct_subscription' \| 'report' \| 'autodebit'` | |
 | `status` | `'paid' \| 'failed'` | Failed auto-debits are recorded from the `payment.failed` webhook |
 | `amount` / `currency` | number (rupees) / string | |
@@ -103,10 +104,21 @@ Source: `functions/src/services/transactions.service.ts` (`recordTransaction`). 
 | `failureReason` | string? | For `failed` |
 | `createdAt`, `updatedAt` | Timestamp | |
 
-`users/{phoneNumber}.transactionCount` is incremented once per newly created transaction. The synthetic `token_<id>` id used by the `token.confirmed` webhook is not a real payment and never creates a transaction.
+**Relationships.** Firestore has no foreign keys, so links are stored as ids and checked by `recordTransaction`, which writes the transaction and all parent pointers in one atomic Firestore transaction:
+
+```
+users/{uid} ──subscriptionId──▶ subscriptions/{uid} ──lastTransactionId──▶ transactions/{paymentId}
+users/{uid} ──lastTransactionId──▶ transactions/{paymentId}
+transactions/{paymentId} ──userId / subscriptionId / orderId──▶ users / subscriptions / paymentOrders
+payments/{…} and paymentOrders/{orderId} ──transactionId──▶ transactions/{paymentId}
+```
+
+A transaction is refused (logged, payment unaffected) if its user doc doesn't exist, or if its `orderId` was recorded for a different user. A failed charge never moves the subscription's `lastTransactionId`. Because recording is best-effort, a pointer can occasionally be missing (never wrong); only new payments carry these links.
+
+`users/{phoneNumber}.transactionCount` is incremented once per newly created transaction, alongside `lastTransactionId` and (for subscription payments) `subscriptionId`. The synthetic `token_<id>` id used by the `token.confirmed` webhook is not a real payment and never creates a transaction.
 
 ### `paymentOrders/{razorpayOrderId}`
-Source: `functions/src/services/paymentOrders.service.ts`, resolved in `reconcile.service.ts`. Recorded when an order is created (`status: 'created'`); reconciliation marks it `paid` (with `razorpayPaymentId`, `resolvedVia`) or `expired` after 7 days without a captured payment.
+Source: `functions/src/services/paymentOrders.service.ts`, resolved in `reconcile.service.ts`. Recorded when an order is created (`status: 'created'`, with `userId`); gets a `transactionId` once its payment is recorded; reconciliation marks it `paid` (with `razorpayPaymentId`, `resolvedVia`) or `expired` after 7 days without a captured payment.
 
 ### `reports/{phoneNumber}`
 Source: `functions/src/types/index.ts` (`ReportRecord`), written/read in `report.service.ts`, `status.controller.ts`.

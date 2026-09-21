@@ -422,6 +422,8 @@ export async function completeMandateRegistration(
       userId: uid,
       purpose,
       razorpayPaymentId: paymentId,
+      // -> transactions/{id}; the synthetic token_ id never becomes a transaction.
+      transactionId: paymentId.startsWith('token_') ? null : paymentId,
       status: 'paid',
       createdAt: FieldValue.serverTimestamp(),
     });

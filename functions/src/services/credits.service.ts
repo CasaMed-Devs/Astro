@@ -99,6 +99,7 @@ export async function creditWallet(
     transaction.set(paymentRef, {
       userId: uid,
       razorpayPaymentId,
+      transactionId: razorpayPaymentId, // -> transactions/{id}
       purpose,
       amount: amountRupees, // Rupees, like every other stored/displayed amount in this app.
       creditsAwarded,

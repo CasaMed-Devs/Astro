@@ -13,13 +13,15 @@ jest.mock('firebase-admin/firestore', () => {
 });
 
 type Doc = Record<string, unknown>;
-type CollectionName = 'users' | 'transactions';
+type CollectionName = 'users' | 'transactions' | 'subscriptions' | 'paymentOrders';
 
 /** Minimal in-memory Firestore: doc get/set/update and transactions. */
-function makeFakeFirestore(initial: { users?: Record<string, Doc>; transactions?: Record<string, Doc> }) {
+function makeFakeFirestore(initial: Partial<Record<CollectionName, Record<string, Doc>>>) {
   const store: Record<CollectionName, Record<string, Doc>> = {
     users: { ...(initial.users ?? {}) },
     transactions: { ...(initial.transactions ?? {}) },
+    subscriptions: { ...(initial.subscriptions ?? {}) },
+    paymentOrders: { ...(initial.paymentOrders ?? {}) },
   };
 
   function apply(data: Doc, existing: Doc | undefined): Doc {
@@ -45,8 +47,9 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; transactions?
         id,
         data: () => store[name][id],
       }),
-      set: async (data: Doc) => {
-        store[name][id] = apply(data, undefined);
+      set: async (data: Doc, opts?: { merge?: boolean }) => {
+        const clean = apply(data, store[name][id]);
+        store[name][id] = opts?.merge ? { ...(store[name][id] ?? {}), ...clean } : clean;
       },
       update: async (data: Doc) => {
         store[name][id] = { ...(store[name][id] ?? {}), ...apply(data, store[name][id]) };
@@ -60,7 +63,11 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; transactions?
       fn({
         get: async (ref: { get: () => Promise<unknown> }) => ref.get(),
         update: async (ref: { update: (d: Doc) => Promise<void> }, data: Doc) => ref.update(data),
-        set: async (ref: { set: (d: Doc) => Promise<void> }, data: Doc) => ref.set(data),
+        set: async (
+          ref: { set: (d: Doc, o?: { merge?: boolean }) => Promise<void> },
+          data: Doc,
+          opts?: { merge?: boolean },
+        ) => ref.set(data, opts),
       }),
   };
 
@@ -165,6 +172,88 @@ describe('recordTransaction', () => {
       confirmedVia: ['webhook', 'reconciliation'],
     });
     expect(store.users.u1.transactionCount).toBe(1);
+  });
+
+  it('links user -> subscription -> transaction for a subscription payment', async () => {
+    const { db, store } = makeFakeFirestore({ users: { u1: { credits: 0 } } });
+    mockAdminFirestore.mockReturnValue(db);
+
+    await recordTransaction({ ...base, paymentId: 'pay_s', purpose: 'subscription', via: 'client_verify' });
+
+    expect(store.transactions.pay_s).toMatchObject({ userId: 'u1', subscriptionId: 'u1' });
+    expect(store.users.u1).toMatchObject({ subscriptionId: 'u1', lastTransactionId: 'pay_s' });
+    expect(store.subscriptions.u1).toMatchObject({ userId: 'u1', lastTransactionId: 'pay_s' });
+  });
+
+  it('does not link a one-off top-up to the subscription', async () => {
+    const { db, store } = makeFakeFirestore({ users: { u1: { credits: 0 } } });
+    mockAdminFirestore.mockReturnValue(db);
+
+    await recordTransaction({ ...base, paymentId: 'pay_t', via: 'client_verify' });
+
+    expect(store.transactions.pay_t.subscriptionId).toBeNull();
+    expect(store.users.u1.lastTransactionId).toBe('pay_t');
+    expect(store.users.u1.subscriptionId).toBeUndefined();
+    expect(store.subscriptions.u1).toBeUndefined();
+  });
+
+  it('does not move the subscription pointer for a failed charge', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { u1: { credits: 0 } },
+      subscriptions: { u1: { userId: 'u1', lastTransactionId: 'pay_ok' } },
+    });
+    mockAdminFirestore.mockReturnValue(db);
+
+    await recordTransaction({
+      ...base,
+      paymentId: 'pay_bad',
+      purpose: 'autodebit',
+      status: 'failed',
+      creditsAwarded: 0,
+      via: 'webhook',
+    });
+
+    expect(store.subscriptions.u1.lastTransactionId).toBe('pay_ok');
+    expect(store.users.u1.lastTransactionId).toBe('pay_bad');
+  });
+
+  it('points the order back at its transaction', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { u1: { credits: 0 } },
+      paymentOrders: { order_1: { userId: 'u1', status: 'created' } },
+    });
+    mockAdminFirestore.mockReturnValue(db);
+
+    await recordTransaction({ ...base, paymentId: 'pay_1', orderId: 'order_1', via: 'client_verify' });
+
+    expect(store.paymentOrders.order_1).toMatchObject({ userId: 'u1', transactionId: 'pay_1' });
+  });
+
+  it('refuses to create an orphan transaction for a user that does not exist', async () => {
+    const { db, store } = makeFakeFirestore({});
+    mockAdminFirestore.mockReturnValue(db);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await recordTransaction({ ...base, paymentId: 'pay_1', via: 'client_verify' });
+
+    expect(store.transactions.pay_1).toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it('refuses to link a payment to an order that belongs to another user', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { u1: { credits: 0 } },
+      paymentOrders: { order_x: { userId: 'someone_else', status: 'created' } },
+    });
+    mockAdminFirestore.mockReturnValue(db);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await recordTransaction({ ...base, paymentId: 'pay_1', orderId: 'order_x', via: 'webhook' });
+
+    expect(store.transactions.pay_1).toBeUndefined();
+    expect(store.users.u1.transactionCount).toBeUndefined();
+    expect(store.paymentOrders.order_x.transactionId).toBeUndefined();
+    warn.mockRestore();
   });
 
   it('never throws if Firestore fails', async () => {

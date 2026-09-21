@@ -271,6 +271,7 @@ export async function recordKundaliPayment(
         userId: uid,
         orderId,
         razorpayPaymentId: paymentId,
+        transactionId: paymentId, // -> transactions/{id}
         purpose: 'report',
         amount: amountRupees,
         status: 'paid',

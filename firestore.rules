@@ -38,6 +38,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Every Razorpay order we created; what payment reconciliation checks.
+    match /paymentOrders/{orderId} {
+      allow read, write: if false;
+    }
+
     // Doc data also includes a `phoneNumber` field mirroring the doc ID —
     // see functions/src/services/report.service.ts.
     match /reports/{phoneNumber} {
