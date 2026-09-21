@@ -76,6 +76,7 @@ export interface OrderPayment {
   id: string;
   status: string;
   amount: number; // paise
+  method?: string | null; // card | upi | netbanking | ...
   token_id?: string | null;
   customer_id?: string | null;
 }

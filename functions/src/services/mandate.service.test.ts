@@ -143,6 +143,8 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Re
 
 jest.mock('../config/firebase-admin', () => ({ adminFirestore: jest.fn() }));
 
+jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async () => undefined) }));
+
 jest.mock('../config/plans', () => ({
   getTrialAmount: jest.fn(async () => ({ amount: 1, currency: 'INR' })),
   getSubscriptionAmount: jest.fn(async () => ({ amount: 299, currency: 'INR' })),

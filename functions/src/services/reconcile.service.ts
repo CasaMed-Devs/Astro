@@ -4,6 +4,7 @@ import { adminFirestore } from '../config/firebase-admin';
 import { getRupeesPerCredit } from '../config/plans';
 import { recordKundaliPayment } from '../controllers/payment.controller';
 import { creditWallet } from './credits.service';
+import { recordTransaction, type TransactionVia } from './transactions.service';
 import { applySubscriptionPayment, completeMandateRegistration } from './mandate.service';
 import type { PaymentOrderPurpose } from './paymentOrders.service';
 import {
@@ -30,7 +31,10 @@ export async function applyCapturedPayment(
   purpose: string,
   payment: OrderPayment & { order_id?: string | null },
   orderId: string,
+  via: TransactionVia,
 ): Promise<ApplyResult> {
+  const options = { via, orderId, paymentMethod: payment.method ?? null };
+
   switch (purpose) {
     case 'topup': {
       const rupeesPerCredit = await getRupeesPerCredit();
@@ -41,11 +45,22 @@ export async function applyCapturedPayment(
         1 / rupeesPerCredit,
         'topup',
       );
+      await recordTransaction({
+        uid,
+        paymentId: payment.id,
+        orderId,
+        purpose: 'topup',
+        status: 'paid',
+        amountRupees: paiseToRupees(Number(payment.amount)),
+        creditsAwarded: result.creditsAwarded,
+        paymentMethod: options.paymentMethod,
+        via,
+      });
       return { status: 'applied', credits: result.creditsAwarded };
     }
 
     case 'subscription':
-      await applySubscriptionPayment(uid, payment.id);
+      await applySubscriptionPayment(uid, payment.id, options);
       return { status: 'applied', credits: 0 };
 
     case 'trial':
@@ -55,12 +70,18 @@ export async function applyCapturedPayment(
       const tokenId = payment.token_id ?? (await findMandateTokenId(payment.id, customerId));
       // Razorpay hasn't issued the mandate token yet — try again next time.
       if (!tokenId) return { status: 'pending' };
-      await completeMandateRegistration(uid, tokenId, payment.id, purpose);
+      await completeMandateRegistration(uid, tokenId, payment.id, purpose, options);
       return { status: 'applied', credits: 0 };
     }
 
     case 'report':
-      await recordKundaliPayment(uid, orderId, payment.id, paiseToRupees(Number(payment.amount)));
+      await recordKundaliPayment(
+        uid,
+        orderId,
+        payment.id,
+        paiseToRupees(Number(payment.amount)),
+        via,
+      );
       return { status: 'applied', credits: 0 };
 
     default:
@@ -114,7 +135,7 @@ export async function reconcilePayments(uid: string): Promise<ReconcileResult> {
         continue;
       }
 
-      const result = await applyCapturedPayment(uid, order.purpose, captured, orderId);
+      const result = await applyCapturedPayment(uid, order.purpose, captured, orderId, 'reconciliation');
       if (result.status === 'pending') {
         pending += 1;
         continue;

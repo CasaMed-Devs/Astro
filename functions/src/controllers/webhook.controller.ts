@@ -5,6 +5,7 @@ import { adminFirestore, adminMessaging } from '../config/firebase-admin';
 import { fetchOrder, paiseToRupees, verifyWebhookSignature } from '../services/razorpay.service';
 import { completeMandateRegistration } from '../services/mandate.service';
 import { applyCapturedPayment } from '../services/reconcile.service';
+import { recordTransaction } from '../services/transactions.service';
 import { recordKundaliPayment } from './payment.controller';
 import { PaymentVerificationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
@@ -19,6 +20,7 @@ interface RazorpayPaymentEntity {
   customer_id?: string | null;
   notes?: Record<string, string>;
   error_description?: string | null;
+  method?: string | null;
 }
 
 interface RazorpayTokenEntity {
@@ -77,12 +79,22 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
       case 'payment.captured': {
         const isRegistration = purpose === 'trial' || purpose === 'direct_subscription';
         if (isRegistration && payment?.token_id) {
-          await completeMandateRegistration(uid, payment.token_id, payment.id, purpose);
+          await completeMandateRegistration(uid, payment.token_id, payment.id, purpose, {
+            via: 'webhook',
+            orderId: payment.order_id,
+            paymentMethod: payment.method,
+          });
         }
         // Wallet top-ups and one-time subscription orders had no webhook
         // fallback before — same idempotent path the client verify uses.
         if ((purpose === 'topup' || purpose === 'subscription') && payment) {
-          await applyCapturedPayment(uid, purpose, { ...payment, status: 'captured', amount: Number(payment.amount ?? 0) }, payment.order_id ?? '');
+          await applyCapturedPayment(
+            uid,
+            purpose,
+            { ...payment, status: 'captured', amount: Number(payment.amount ?? 0) },
+            payment.order_id ?? '',
+            'webhook',
+          );
         }
         // Fallback for a kundali payment whose app-side verify never ran
         // (app closed right after paying) — idempotent with verifyReportPayment.
@@ -92,6 +104,7 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
             payment.order_id ?? '',
             payment.id,
             paiseToRupees(Number(payment.amount ?? 0)),
+            'webhook',
           );
         }
         break;
@@ -123,6 +136,19 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
               },
               { merge: true },
             );
+          if (payment) {
+            await recordTransaction({
+              uid,
+              paymentId: payment.id,
+              orderId: payment.order_id,
+              purpose: 'autodebit',
+              status: 'failed',
+              amountRupees: paiseToRupees(Number(payment.amount ?? 0)),
+              paymentMethod: payment.method,
+              failureReason: payment.error_description ?? 'Auto-debit payment failed.',
+              via: 'webhook',
+            });
+          }
           await sendAutoDebitFailedNotification(uid);
         }
         break;

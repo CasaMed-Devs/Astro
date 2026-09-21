@@ -113,9 +113,12 @@ jest.mock('./razorpay.service', () => ({
 
 jest.mock('../controllers/payment.controller', () => ({ recordKundaliPayment: jest.fn() }));
 
+jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async () => undefined) }));
+
 import { adminFirestore } from '../config/firebase-admin';
 import { fetchOrderPayments } from './razorpay.service';
 import { reconcilePayments } from './reconcile.service';
+import { recordTransaction } from './transactions.service';
 
 const mockAdminFirestore = adminFirestore as unknown as jest.Mock;
 const mockFetchOrderPayments = fetchOrderPayments as unknown as jest.Mock;
@@ -150,6 +153,17 @@ describe('reconcilePayments', () => {
     expect(store.users.u1.credits).toBe(100);
     expect(store.payments.pay_1).toMatchObject({ purpose: 'topup', creditsAwarded: 100 });
     expect(store.paymentOrders.order_1).toMatchObject({ status: 'paid', resolvedVia: 'reconciliation' });
+    expect(recordTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: 'u1',
+        paymentId: 'pay_1',
+        orderId: 'order_1',
+        purpose: 'topup',
+        status: 'paid',
+        amountRupees: 100,
+        via: 'reconciliation',
+      }),
+    );
 
     // The order is now resolved, so a second run does not even ask Razorpay.
     const second = await reconcilePayments('u1');

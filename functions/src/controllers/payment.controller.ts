@@ -26,6 +26,7 @@ import {
   verifyTrialRegistration,
 } from '../services/mandate.service';
 import { recordPaymentOrder } from '../services/paymentOrders.service';
+import { recordTransaction, type TransactionVia } from '../services/transactions.service';
 import { unlockKundali } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
@@ -152,6 +153,17 @@ export async function verifyTopUpPayment(req: Request, res: Response): Promise<v
   const rupeesPerCredit = await getRupeesPerCredit();
   const amountRupees = paiseToRupees(Number(order.amount));
   const result = await creditWallet(req.uid, amountRupees, input.paymentId, 1 / rupeesPerCredit);
+  await recordTransaction({
+    uid: req.uid,
+    paymentId: input.paymentId,
+    orderId: input.orderId,
+    purpose: 'topup',
+    status: 'paid',
+    amountRupees,
+    currency: String(order.currency ?? 'INR'),
+    creditsAwarded: result.creditsAwarded,
+    via: 'client_verify',
+  });
 
   res.json({
     status: 'ok',
@@ -249,6 +261,7 @@ export async function recordKundaliPayment(
   orderId: string,
   paymentId: string,
   amountRupees: number,
+  via: TransactionVia = 'client_verify',
 ): Promise<void> {
   await adminFirestore()
     .collection('payments')
@@ -266,4 +279,13 @@ export async function recordKundaliPayment(
       { merge: true },
     );
   await unlockKundali(uid);
+  await recordTransaction({
+    uid,
+    paymentId,
+    orderId,
+    purpose: 'report',
+    status: 'paid',
+    amountRupees,
+    via,
+  });
 }

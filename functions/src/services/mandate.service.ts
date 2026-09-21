@@ -16,12 +16,20 @@ import {
 } from './razorpay.service';
 import { creditWallet } from './credits.service';
 import { recordPaymentOrder } from './paymentOrders.service';
+import { recordTransaction, type TransactionVia } from './transactions.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateMethod, UserProfileRecord } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_MS = 30 * DAY_MS;
 const GRACE_PERIOD_MS = 3 * DAY_MS;
+
+/** Where a payment was confirmed from; when omitted, no transactions/ record is written. */
+export interface TransactionOptions {
+  via: TransactionVia;
+  orderId?: string | null;
+  paymentMethod?: string | null;
+}
 
 /**
  * Keeps subscriptions/{uid} — the per-user subscription record — in step with
@@ -208,7 +216,10 @@ export async function verifyTrialRegistration(
   const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
   if (!tokenId) return { status: 'pending' };
 
-  await completeMandateRegistration(uid, tokenId, input.paymentId, 'trial');
+  await completeMandateRegistration(uid, tokenId, input.paymentId, 'trial', {
+    via: 'client_verify',
+    orderId: input.orderId,
+  });
   return { status: 'ok' };
 }
 
@@ -302,11 +313,17 @@ export async function verifySubscriptionPayment(
     const user = await getUserOrThrow(uid);
     const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
     if (!tokenId) return { status: 'pending' };
-    await completeMandateRegistration(uid, tokenId, input.paymentId, 'direct_subscription');
+    await completeMandateRegistration(uid, tokenId, input.paymentId, 'direct_subscription', {
+      via: 'client_verify',
+      orderId: input.orderId,
+    });
     return { status: 'ok' };
   }
 
-  await applySubscriptionPayment(uid, input.paymentId);
+  await applySubscriptionPayment(uid, input.paymentId, {
+    via: 'client_verify',
+    orderId: input.orderId,
+  });
   return { status: 'ok' };
 }
 
@@ -315,7 +332,11 @@ export async function verifySubscriptionPayment(
  * Idempotent per paymentId (creditWallet), so the client verify, the webhook
  * and reconciliation can all call it for the same payment.
  */
-export async function applySubscriptionPayment(uid: string, paymentId: string): Promise<void> {
+export async function applySubscriptionPayment(
+  uid: string,
+  paymentId: string,
+  options?: TransactionOptions,
+): Promise<void> {
   const { amount } = await getSubscriptionAmount();
   const rupeesPerCredit = await getRupeesPerCredit();
   const result = await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
@@ -342,6 +363,20 @@ export async function applySubscriptionPayment(uid: string, paymentId: string): 
       nextAutoDebitAmount: amount,
     });
   }
+
+  if (options) {
+    await recordTransaction({
+      uid,
+      paymentId,
+      orderId: options.orderId,
+      purpose: 'subscription',
+      status: 'paid',
+      amountRupees: amount,
+      creditsAwarded: result.creditsAwarded,
+      paymentMethod: options.paymentMethod,
+      via: options.via,
+    });
+  }
 }
 
 /**
@@ -359,6 +394,7 @@ export async function completeMandateRegistration(
   tokenId: string,
   paymentId: string,
   purpose: 'trial' | 'direct_subscription',
+  options?: TransactionOptions,
 ): Promise<void> {
   const db = adminFirestore();
   const userRef = db.collection('users').doc(uid);
@@ -392,7 +428,17 @@ export async function completeMandateRegistration(
     return false;
   });
 
-  if (alreadyProcessed) return;
+  // The token.confirmed webhook passes a synthetic `token_<id>` as paymentId —
+  // not a real Razorpay payment, so it never becomes a transaction.
+  const recordable = options && !paymentId.startsWith('token_') ? options : undefined;
+
+  if (alreadyProcessed) {
+    // Still note this channel on the existing transaction (confirmedVia).
+    if (recordable) {
+      await recordRegistrationTransaction(uid, paymentId, purpose, recordable, undefined);
+    }
+    return;
+  }
 
   const subscriptionAmount = await getSubscriptionAmount();
   await recordSubscription(uid, {
@@ -409,14 +455,54 @@ export async function completeMandateRegistration(
 
   if (purpose === 'trial') {
     await grantTrialCreditsOnce(uid);
+    if (recordable) {
+      await recordRegistrationTransaction(uid, paymentId, purpose, recordable, 5);
+    }
   } else {
     // Direct-to-subscription registration (no trial) — the registration
     // payment itself was the subscription-amount charge, so credit it now.
     // Keyed by the plain paymentId (creditWallet's own convention), distinct
     // from the registration_ ledger doc written above.
     const rupeesPerCredit = await getRupeesPerCredit();
-    await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+    const credited = await creditWallet(
+      uid,
+      subscriptionAmount.amount,
+      paymentId,
+      1 / rupeesPerCredit,
+      'subscription',
+    );
+    if (recordable) {
+      await recordRegistrationTransaction(
+        uid,
+        paymentId,
+        purpose,
+        recordable,
+        credited.creditsAwarded,
+      );
+    }
   }
+}
+
+async function recordRegistrationTransaction(
+  uid: string,
+  paymentId: string,
+  purpose: 'trial' | 'direct_subscription',
+  options: TransactionOptions,
+  creditsAwarded: number | undefined,
+): Promise<void> {
+  const amount =
+    purpose === 'trial' ? (await getTrialAmount()).amount : (await getSubscriptionAmount()).amount;
+  await recordTransaction({
+    uid,
+    paymentId,
+    orderId: options.orderId,
+    purpose,
+    status: 'paid',
+    amountRupees: amount,
+    creditsAwarded,
+    paymentMethod: options.paymentMethod,
+    via: options.via,
+  });
 }
 
 export interface UpgradeNowResult {
@@ -451,7 +537,7 @@ export async function upgradeNow(uid: string, method?: MandateMethod): Promise<U
     return { status: 'registration_required', ...registration };
   }
 
-  const { paymentId } = await chargeRecurringToken(
+  const { paymentId, orderId } = await chargeRecurringToken(
     user.razorpayCustomerId,
     user.razorpayTokenId,
     subscriptionAmount.amount,
@@ -468,6 +554,17 @@ export async function upgradeNow(uid: string, method?: MandateMethod): Promise<U
     1 / rupeesPerCredit,
     'subscription',
   );
+  await recordTransaction({
+    uid,
+    paymentId,
+    orderId,
+    purpose: 'subscription',
+    status: 'paid',
+    amountRupees: subscriptionAmount.amount,
+    creditsAwarded: result.creditsAwarded,
+    paymentMethod: user.mandateMethod,
+    via: 'auto_debit',
+  });
   await recordSubscription(uid, {
     planId: 'plus',
     status: 'active',
@@ -527,7 +624,7 @@ export async function processDueAutoDebits(): Promise<{ charged: number; failed:
     const amount = user.nextAutoDebitAmount ?? (await getSubscriptionAmount()).amount;
 
     try {
-      const { paymentId } = await chargeRecurringToken(
+      const { paymentId, orderId } = await chargeRecurringToken(
         user.razorpayCustomerId,
         user.razorpayTokenId,
         amount,
@@ -537,7 +634,18 @@ export async function processDueAutoDebits(): Promise<{ charged: number; failed:
       );
 
       const rupeesPerCredit = await getRupeesPerCredit();
-      await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+      const credited = await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+      await recordTransaction({
+        uid,
+        paymentId,
+        orderId,
+        purpose: 'autodebit',
+        status: 'paid',
+        amountRupees: amount,
+        creditsAwarded: credited.creditsAwarded,
+        paymentMethod: user.mandateMethod,
+        via: 'auto_debit',
+      });
       await recordSubscription(uid, {
         planId: 'plus',
         status: 'active',

@@ -14,6 +14,8 @@ Database: **Cloud Firestore** (NoSQL, document/collection model). All access goe
 | `personaChats` | `${phoneNumber}_${profileId}` | backend only | ❌ | Thin ownership record for a chat session — **not** the message store |
 | `subscriptions` | `{phoneNumber}` | backend only | ❌ | Astro101 Plus subscription state |
 | `payments` | auto-ID | backend only | ❌ | Payment attempt log (Razorpay) |
+| `transactions` | Razorpay payment ID | backend only | ❌ | One record per payment, incl. which channel confirmed it |
+| `paymentOrders` | Razorpay order ID | backend only | ❌ | Every order we created; what payment reconciliation checks |
 | `reports` | `{phoneNumber}` | backend only | ❌ | Kundali chart + AI-generated report |
 | `otps` | `{phoneNumber}` | backend only | ❌ | Short-lived OTP verification state |
 | `horoscopes/{sign}/daily` | `{date}` (`YYYY-MM-DD`) | backend only | ✅ public read | Cached daily horoscope per zodiac sign |
@@ -83,6 +85,28 @@ Source: `functions/src/controllers/payment.controller.ts`. Append-only log, one 
 | `purpose` | `'subscription' \| 'report'` | |
 | `status` | string | Always written as `'paid'` at creation time (only reached after signature verification succeeds) |
 | `createdAt` | Timestamp | |
+
+### `transactions/{razorpayPaymentId}`
+Source: `functions/src/services/transactions.service.ts` (`recordTransaction`). One doc per Razorpay payment; `payments` remains the idempotency ledger and this collection is the audit/user-facing record. Written best-effort — a failure to record never blocks a payment.
+
+| Field | Type | Notes |
+|---|---|---|
+| `userId`, `paymentId`, `orderId` | string | `orderId` may be null (e.g. some auto-debits) |
+| `purpose` | `'topup' \| 'trial' \| 'subscription' \| 'direct_subscription' \| 'report' \| 'autodebit'` | |
+| `status` | `'paid' \| 'failed'` | Failed auto-debits are recorded from the `payment.failed` webhook |
+| `amount` / `currency` | number (rupees) / string | |
+| `creditsAwarded` | number | 0 when the payment awards none |
+| `paymentMethod` | string? | `card` / `upi` / … from the Razorpay payment when known, else the user's stored `mandateMethod` |
+| `createdVia` | `'client_verify' \| 'webhook' \| 'reconciliation' \| 'auto_debit'` | The first channel that recorded it. `client_verify` is the app's `/verify` call right after checkout (client-side polling only reads and never records) |
+| `confirmedVia` | string[] | Every channel that has confirmed this payment — shows the redundancy firing (e.g. `['webhook', 'client_verify']`) |
+| `sequence` | number | This user's nth transaction (1, 2, 3 …) |
+| `failureReason` | string? | For `failed` |
+| `createdAt`, `updatedAt` | Timestamp | |
+
+`users/{phoneNumber}.transactionCount` is incremented once per newly created transaction. The synthetic `token_<id>` id used by the `token.confirmed` webhook is not a real payment and never creates a transaction.
+
+### `paymentOrders/{razorpayOrderId}`
+Source: `functions/src/services/paymentOrders.service.ts`, resolved in `reconcile.service.ts`. Recorded when an order is created (`status: 'created'`); reconciliation marks it `paid` (with `razorpayPaymentId`, `resolvedVia`) or `expired` after 7 days without a captured payment.
 
 ### `reports/{phoneNumber}`
 Source: `functions/src/types/index.ts` (`ReportRecord`), written/read in `report.service.ts`, `status.controller.ts`.
