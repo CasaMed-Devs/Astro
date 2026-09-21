@@ -72,6 +72,22 @@ export async function fetchPayment(paymentId: string) {
   return getClient().payments.fetch(paymentId);
 }
 
+export interface OrderPayment {
+  id: string;
+  status: string;
+  amount: number; // paise
+  token_id?: string | null;
+  customer_id?: string | null;
+}
+
+/** Every payment attempt Razorpay has for an order (used by reconciliation). */
+export async function fetchOrderPayments(orderId: string): Promise<OrderPayment[]> {
+  const result = (await getClient().orders.fetchPayments(orderId)) as unknown as {
+    items?: OrderPayment[];
+  };
+  return result.items ?? [];
+}
+
 /**
  * Best-effort lookup of the mandate token for a just-completed registration
  * payment: the payment entity carries `token_id` for recurring payments; if

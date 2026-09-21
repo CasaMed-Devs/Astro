@@ -25,6 +25,7 @@ import {
   verifySubscriptionPayment,
   verifyTrialRegistration,
 } from '../services/mandate.service';
+import { recordPaymentOrder } from '../services/paymentOrders.service';
 import { unlockKundali } from '../services/report.service';
 import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
 
@@ -129,6 +130,7 @@ export async function createTopUpOrder(req: Request, res: Response): Promise<voi
     uid: req.uid,
     purpose: 'topup',
   });
+  await recordPaymentOrder(order.orderId, req.uid, 'topup', order.amount);
 
   res.json(order);
 }
@@ -215,6 +217,7 @@ export async function createReportOrder(req: Request, res: Response): Promise<vo
     uid: req.uid,
     purpose: 'report',
   });
+  await recordPaymentOrder(order.orderId, req.uid, 'report', order.amount);
   res.json(order);
 }
 

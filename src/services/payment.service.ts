@@ -60,6 +60,20 @@ export interface UpgradeNowResult {
   shortUrl?: string;
 }
 
+export interface ReconcileResult {
+  resolved: { purpose: string; orderId: string }[];
+  pending: number;
+}
+
+/**
+ * Safety net for a payment whose in-app verify and webhook both missed: asks
+ * the backend to re-check recent unresolved orders with Razorpay and apply
+ * any captured payment. Idempotent, so it is safe to call repeatedly.
+ */
+export function reconcilePayments(): Promise<ReconcileResult> {
+  return apiClient.post<ReconcileResult>('/payments/reconcile');
+}
+
 export function getPricing(): Promise<PublicPricing> {
   return apiClient.get<PublicPricing>('/payments/pricing');
 }

@@ -15,6 +15,7 @@ import {
   type VerifySignatureInput,
 } from './razorpay.service';
 import { creditWallet } from './credits.service';
+import { recordPaymentOrder } from './paymentOrders.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateMethod, UserProfileRecord } from '../types';
 
@@ -161,6 +162,7 @@ export async function startTrialOrder(
     { uid, purpose: 'trial' },
     user.razorpayCustomerId,
   );
+  await recordPaymentOrder(order.orderId, uid, 'trial', order.amount);
 
   await adminFirestore().collection('users').doc(uid).set(
     {
@@ -233,10 +235,12 @@ export async function startSubscriptionOrder(
     user.mandateStatus === 'active' && !!user.razorpayCustomerId && !!user.razorpayTokenId;
 
   if (hasActiveMandate) {
-    return createOrder(amount, currency, `subscription_${uid}_${Date.now()}`, {
+    const plainOrder = await createOrder(amount, currency, `subscription_${uid}_${Date.now()}`, {
       uid,
       purpose: 'subscription',
     });
+    await recordPaymentOrder(plainOrder.orderId, uid, 'subscription', plainOrder.amount);
+    return plainOrder;
   }
 
   if (!method) {
@@ -253,6 +257,7 @@ export async function startSubscriptionOrder(
     { uid, purpose: 'direct_subscription' },
     user.razorpayCustomerId,
   );
+  await recordPaymentOrder(order.orderId, uid, 'direct_subscription', order.amount);
 
   await adminFirestore().collection('users').doc(uid).set(
     {
@@ -301,9 +306,19 @@ export async function verifySubscriptionPayment(
     return { status: 'ok' };
   }
 
+  await applySubscriptionPayment(uid, input.paymentId);
+  return { status: 'ok' };
+}
+
+/**
+ * Credits a paid one-time subscription order and restarts the 30-day cycle.
+ * Idempotent per paymentId (creditWallet), so the client verify, the webhook
+ * and reconciliation can all call it for the same payment.
+ */
+export async function applySubscriptionPayment(uid: string, paymentId: string): Promise<void> {
   const { amount } = await getSubscriptionAmount();
   const rupeesPerCredit = await getRupeesPerCredit();
-  const result = await creditWallet(uid, amount, input.paymentId, 1 / rupeesPerCredit, 'subscription');
+  const result = await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
 
   if (!result.alreadyProcessed) {
     const nextAutoDebitAt = Timestamp.fromMillis(Date.now() + MONTH_MS);
@@ -319,7 +334,7 @@ export async function verifySubscriptionPayment(
     await recordSubscription(uid, {
       planId: 'plus',
       status: 'active',
-      lastPaymentId: input.paymentId,
+      lastPaymentId: paymentId,
       lastPaymentAmount: amount,
       lastPaymentAt: Timestamp.now(),
       currentPeriodStart: Timestamp.now(),
@@ -327,7 +342,6 @@ export async function verifySubscriptionPayment(
       nextAutoDebitAmount: amount,
     });
   }
-  return { status: 'ok' };
 }
 
 /**

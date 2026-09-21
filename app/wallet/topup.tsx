@@ -15,6 +15,7 @@ import {
   getTopUpConfig,
   getTopUpHistory,
   openRazorpayCheckout,
+  reconcilePayments,
   verifyTopUpPayment,
   type PublicPricing,
   type TopUpConfig,
@@ -104,6 +105,7 @@ export default function TopUpScreen() {
     }
     setProcessing(true);
     setError(null);
+    let paid = false;
     try {
       const order = await createTopUpOrder(amountRupees);
       const result = await openRazorpayCheckout(order, {
@@ -111,6 +113,7 @@ export default function TopUpScreen() {
         description: `Add ${amountRupees} credits`,
         contact: session?.phoneNumber ?? undefined,
       });
+      paid = true;
       const verification = await verifyTopUpPayment(result);
       setSuccessCredits(verification.creditsAwarded);
       setSelectedAmount(null);
@@ -118,6 +121,23 @@ export default function TopUpScreen() {
       await refreshProfile();
       loadHistory();
     } catch (err) {
+      if (paid) {
+        // Money was taken but our verify call failed — let the backend check
+        // with Razorpay and credit it instead of leaving the user unpaid.
+        try {
+          const recovery = await reconcilePayments();
+          if (recovery.resolved.length > 0) {
+            await refreshProfile();
+            loadHistory();
+            setError('Payment received. Your credits have been added.');
+            return;
+          }
+        } catch {
+          // fall through to the generic message below
+        }
+        setError('Payment received. Credits may take a moment to appear — reopen the app if they do not.');
+        return;
+      }
       setError(err instanceof AppError ? err.message : 'Could not complete the top-up.');
     } finally {
       setProcessing(false);

@@ -4,6 +4,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminFirestore, adminMessaging } from '../config/firebase-admin';
 import { fetchOrder, paiseToRupees, verifyWebhookSignature } from '../services/razorpay.service';
 import { completeMandateRegistration } from '../services/mandate.service';
+import { applyCapturedPayment } from '../services/reconcile.service';
 import { recordKundaliPayment } from './payment.controller';
 import { PaymentVerificationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
@@ -77,6 +78,11 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
         const isRegistration = purpose === 'trial' || purpose === 'direct_subscription';
         if (isRegistration && payment?.token_id) {
           await completeMandateRegistration(uid, payment.token_id, payment.id, purpose);
+        }
+        // Wallet top-ups and one-time subscription orders had no webhook
+        // fallback before — same idempotent path the client verify uses.
+        if ((purpose === 'topup' || purpose === 'subscription') && payment) {
+          await applyCapturedPayment(uid, purpose, { ...payment, status: 'captured', amount: Number(payment.amount ?? 0) }, payment.order_id ?? '');
         }
         // Fallback for a kundali payment whose app-side verify never ran
         // (app closed right after paying) — idempotent with verifyReportPayment.
