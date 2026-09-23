@@ -38,3 +38,23 @@ export function formatTime(date: Date): string {
   hours = hours % 12 || 12;
   return `${String(hours).padStart(2, '0')}:${minutes} ${suffix}`;
 }
+
+/** Inverse of formatDate — parses a "dd/mm/yyyy" string back into a Date. */
+export function parseDate(value: string): Date | null {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
+/** Inverse of formatTime — parses a "hh:mm AM/PM" string back into a Date. */
+export function parseTime(value: string): Date | null {
+  const match = value.match(/^(\d{2}):(\d{2}) (AM|PM)$/);
+  if (!match) return null;
+  const [, hourStr, minuteStr, suffix] = match;
+  let hours = Number(hourStr) % 12;
+  if (suffix === 'PM') hours += 12;
+  const date = new Date();
+  date.setHours(hours, Number(minuteStr), 0, 0);
+  return date;
+}

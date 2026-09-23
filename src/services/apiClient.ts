@@ -11,7 +11,10 @@ const BACKEND_URLS: Record<BackendTarget, string | undefined> = {
   firebase: process.env.EXPO_PUBLIC_API_URL_FIREBASE,
 };
 
-const BACKEND_TARGET = (process.env.EXPO_PUBLIC_BACKEND_TARGET as BackendTarget | undefined) ?? 'firebase';
+// Tolerate stray case/whitespace in the env value (e.g. "Firebase "), which
+// would otherwise miss every key below and leave the API URL empty.
+const BACKEND_TARGET = (process.env.EXPO_PUBLIC_BACKEND_TARGET?.trim().toLowerCase() ||
+  'firebase') as BackendTarget;
 
 const API_URL = BACKEND_URLS[BACKEND_TARGET] ?? Constants.expoConfig?.extra?.apiUrl ?? '';
 

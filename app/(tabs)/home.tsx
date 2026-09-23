@@ -43,7 +43,7 @@ export default function HomeScreen() {
         <Pressable style={styles.upsellButton} onPress={() => router.push(getPaywallRoute(profile))}>
           <Crown size={16} color={colors.onGradientText} />
           <AppText variant="buttonLabel" color={colors.onGradientText}>
-            {profile?.trialCreditsClaimed ? 'Add credits' : 'Try for Re.1'}
+            {profile?.trialCreditsClaimed ? 'Add credits' : 'Try for Rs.1'}
           </AppText>
         </Pressable>
       </View>

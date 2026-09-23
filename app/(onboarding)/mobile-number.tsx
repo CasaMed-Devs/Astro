@@ -7,7 +7,7 @@ import { Button } from '@/components/buttons/Button';
 import { Input } from '@/components/forms/Input';
 import { Screen } from '@/components/common/Screen';
 import { useOtpFlow } from '@/features/auth/context/OtpFlowProvider';
-import { devLogin, sendOtp } from '@/services/auth.service';
+import { sendOtp } from '@/services/auth.service';
 import { colors, spacing } from '@/constants/theme';
 import { isValidIndianMobileNumber, toE164 } from '@/validation/phone';
 import { AppError } from '@/utils/errors';
@@ -16,23 +16,7 @@ export default function MobileNumberScreen() {
   const [localNumber, setLocalNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [devSigningIn, setDevSigningIn] = useState(false);
   const { setPendingVerification } = useOtpFlow();
-
-  const handleDevLogin = async () => {
-    setError(null);
-    setDevSigningIn(true);
-    try {
-      await devLogin();
-      router.replace('/(onboarding)/birth-details');
-    } catch (err) {
-      setError(
-        err instanceof AppError ? err.message : 'Dev login failed. Is ENABLE_DEV_LOGIN set on the backend?',
-      );
-    } finally {
-      setDevSigningIn(false);
-    }
-  };
 
   const handleSendOtp = async () => {
     setError(null);
@@ -110,15 +94,6 @@ export default function MobileNumberScreen() {
           By continuing you agree to our Terms and Privacy Policy. Consultations are for guidance
           purposes only.
         </AppText>
-        {__DEV__ ? (
-          <Button
-            label="Skip login (dev)"
-            variant="ghost"
-            onPress={handleDevLogin}
-            loading={devSigningIn}
-            testID="dev-login-button"
-          />
-        ) : null}
       </View>
     </Screen>
   );

@@ -92,9 +92,19 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!chatId) return;
     return subscribeToMessages(chatId, ({ messages: fetched, remainingCredits: credits }) => {
-      setMessages(fetched);
+      // The poll only returns the latest window of messages. Merge instead of
+      // replacing so earlier pages fetched via "load earlier" (which have a
+      // lower seq than this window's start) aren't wiped out on the next tick.
+      setMessages((prev) => {
+        if (fetched.length === 0) return prev;
+        const fetchedStart = Number(fetched[0].id);
+        const olderKept = prev.filter((m) => Number(m.id) < fetchedStart);
+        return [...olderKept, ...fetched];
+      });
       if (fetched.length > 0) {
-        setOldestSeq(Number(fetched[0].id));
+        setOldestSeq((prevOldest) =>
+          prevOldest != null ? Math.min(prevOldest, Number(fetched[0].id)) : Number(fetched[0].id),
+        );
       }
       // Drop local echoes now that the server has persisted the matching message.
       setLocalMessages((prev) =>

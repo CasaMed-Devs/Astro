@@ -283,11 +283,21 @@ const styles = StyleSheet.create({
   heroGlyphRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: spacing.md,
     marginBottom: spacing.lg,
+    paddingHorizontal: spacing.sm,
   },
-  heroGlyph: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.primary },
-  heroGlyphTitle: { fontFamily: fonts.wordmark, fontSize: 26, color: colors.textPrimary },
+  heroGlyph: { fontFamily: fonts.wordmark, fontSize: 26, lineHeight: 36, color: colors.primary },
+  heroGlyphTitle: {
+    fontFamily: fonts.wordmark,
+    fontSize: 26,
+    lineHeight: 36,
+    color: colors.textPrimary,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
   avatarStrip: { flexDirection: 'row' },
   avatar: {
     width: 56,
@@ -392,6 +402,7 @@ const styles = StyleSheet.create({
   priceValue: {
     fontFamily: fonts.display,
     fontSize: 34,
+    lineHeight: 41,
     color: colors.primaryDark,
   },
   error: { marginTop: spacing.md, fontSize: 14 },

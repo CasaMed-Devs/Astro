@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AuthProvider } from '@/features/auth/context/AuthProvider';
+import { PaywallGate } from '@/features/paywall/PaywallGate';
 import { SplashView } from '@/components/states/SplashView';
 import { useAppFonts } from '@/hooks/useAppFonts';
 
@@ -35,6 +36,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <StatusBar style="dark" />
+          <PaywallGate />
           <Stack screenOptions={{ headerShown: false }} />
         </AuthProvider>
       </QueryClientProvider>

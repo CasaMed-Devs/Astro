@@ -8,6 +8,7 @@ import { OtpInput } from '@/components/forms/OtpInput';
 import { Screen } from '@/components/common/Screen';
 import { useOtpFlow } from '@/features/auth/context/OtpFlowProvider';
 import { useCountdown } from '@/hooks/useCountdown';
+import { showSuccessToast } from '@/utils/toast';
 import { confirmOtp, sendOtp } from '@/services/auth.service';
 import { colors, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
@@ -32,6 +33,7 @@ export default function OtpScreen() {
     setVerifying(true);
     try {
       await confirmOtp(phoneNumber, value, identificationToken);
+      showSuccessToast('Welcome!');
       Keyboard.dismiss();
       // Defer to the next frame so the keyboard-dismiss commit fully settles
       // before react-native-screens tears down this screen and mounts the
