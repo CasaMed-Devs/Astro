@@ -81,13 +81,6 @@ export default function ProfileScreen() {
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={() => router.push('/settings')}>
-        <Settings size={20} color={colors.textSecondary} />
-        <AppText variant="body" style={styles.menuLabel}>
-          Settings
-        </AppText>
-      </Pressable>
-
       <Pressable style={styles.menuRow} onPress={() => Linking.openURL(TERMS_URL)}>
         <FileText size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>

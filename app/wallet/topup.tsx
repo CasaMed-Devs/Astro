@@ -37,6 +37,8 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/astrologers'));
+
 export default function TopUpScreen() {
   const { session, profile, refreshProfile } = useAuth();
   const [config, setConfig] = useState<TopUpConfig | null>(null);
@@ -148,7 +150,7 @@ export default function TopUpScreen() {
   if (successCredits != null) {
     return (
       <Screen>
-        <Pressable onPress={() => router.back()} style={styles.closeButton}>
+        <Pressable onPress={goBack} style={styles.closeButton}>
           <X size={18} color={colors.textPrimary} />
         </Pressable>
         <View style={styles.successContainer}>
@@ -156,7 +158,7 @@ export default function TopUpScreen() {
           <AppText variant="body" color={colors.textSecondary} style={styles.successBody}>
             {successCredits} credits added. New balance: {profile?.credits ?? '—'} credits.
           </AppText>
-          <Button label="Done" onPress={() => router.back()} />
+          <Button label="Done" onPress={goBack} />
         </View>
       </Screen>
     );
@@ -164,7 +166,7 @@ export default function TopUpScreen() {
 
   return (
     <Screen scroll>
-      <Pressable onPress={() => router.back()} style={styles.backRow} hitSlop={8}>
+      <Pressable onPress={goBack} style={styles.backRow} hitSlop={8}>
         <ArrowLeft size={18} color={colors.textSecondary} />
         <AppText variant="body" color={colors.textSecondary}>
           Astrologers
