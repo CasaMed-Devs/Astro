@@ -39,16 +39,13 @@ async function fetchUserDetail(uid: string) {
     credits: user.credits ?? 0,
     createdAt: serializeTimestamp(user.createdAt),
     updatedAt: serializeTimestamp(user.updatedAt),
-    // Auto-debit mandate state. Razorpay customer/token ids are deliberately
-    // not exposed, even to admins.
+    // Mandate state (Razorpay Subscriptions API). Razorpay customer/token
+    // ids are deliberately not exposed, even to admins.
     mandate: {
       status: user.mandateStatus ?? 'none',
       method: user.mandateMethod ?? null,
       trialCreditsClaimed: user.trialCreditsClaimed ?? false,
-      nextAutoDebitAt: serializeTimestamp(user.nextAutoDebitAt),
-      nextAutoDebitAmount: user.nextAutoDebitAmount ?? null,
-      graceUntil: serializeTimestamp(user.graceUntil),
-      lastPaymentFailureReason: user.lastPaymentFailureReason ?? null,
+      subscriptionId: user.subscriptionId ?? null,
     },
     report: report
       ? {

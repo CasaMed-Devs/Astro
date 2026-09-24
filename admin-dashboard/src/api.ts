@@ -74,13 +74,10 @@ export interface PricingUpdate {
 }
 
 export interface MandateDetail {
-  status: 'none' | 'created' | 'authenticated' | 'active' | 'past_due' | 'cancelled' | 'expired';
+  status: 'none' | 'created' | 'authenticated' | 'active' | 'pending' | 'halted' | 'completed' | 'cancelled' | 'expired';
   method: 'card' | 'upi' | null;
   trialCreditsClaimed: boolean;
-  nextAutoDebitAt?: string;
-  nextAutoDebitAmount: number | null;
-  graceUntil?: string;
-  lastPaymentFailureReason: string | null;
+  subscriptionId: string | null;
 }
 
 export interface UserDetail {

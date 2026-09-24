@@ -57,10 +57,10 @@ export async function getMyMandate(req: Request, res: Response): Promise<void> {
     mandateStatus: data.mandateStatus ?? 'none',
     mandateMethod: data.mandateMethod ?? null,
     trialCreditsClaimed: data.trialCreditsClaimed ?? false,
-    nextAutoDebitAt: serializeTimestamp(data.nextAutoDebitAt),
-    nextAutoDebitAmount: data.nextAutoDebitAmount ?? null,
-    graceUntil: serializeTimestamp(data.graceUntil),
-    lastPaymentFailureReason: data.lastPaymentFailureReason ?? null,
+    // Not a Razorpay customer/token id (those stay backend-only) — this is
+    // the current cycle's own id, needed by the app to call
+    // GET /payments/subscription/status and POST /payments/subscription/cancel.
+    subscriptionId: data.subscriptionId ?? null,
   });
 }
 

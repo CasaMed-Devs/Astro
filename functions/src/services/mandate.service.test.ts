@@ -16,22 +16,38 @@ jest.mock('firebase-admin/firestore', () => {
 });
 
 type Doc = Record<string, unknown>;
+type CollectionName = 'users' | 'payments' | 'subscriptions';
 
 /**
  * Minimal in-memory Firestore fake supporting exactly what mandate.service
  * needs: doc get/set/update, simple where()-chained queries, and
- * runTransaction. Good enough to exercise the idempotency and scheduling
- * logic without a real emulator.
+ * runTransaction. Good enough to exercise the idempotency logic without a
+ * real emulator.
  */
-type CollectionName = 'users' | 'payments' | 'subscriptions' | 'failedCredits';
-
-function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Record<string, Doc> }) {
+function makeFakeFirestore(initial: Partial<Record<CollectionName, Record<string, Doc>>>) {
   const store: Record<CollectionName, Record<string, Doc>> = {
     users: { ...(initial.users ?? {}) },
     payments: { ...(initial.payments ?? {}) },
-    subscriptions: {},
-    failedCredits: {},
+    subscriptions: { ...(initial.subscriptions ?? {}) },
   };
+
+  function stripSentinels(data: Doc, existing: Doc | undefined): Doc {
+    const result: Doc = { ...data };
+    for (const [key, value] of Object.entries(data)) {
+      if (value && typeof value === 'object' && '__op' in (value as Record<string, unknown>)) {
+        const op = (value as { __op: string; amount?: number }).__op;
+        if (op === 'increment') {
+          const current = Number((existing as Doc | undefined)?.[key] ?? 0);
+          result[key] = current + Number((value as { amount: number }).amount);
+        } else if (op === 'delete') {
+          delete result[key];
+        } else if (op === 'serverTimestamp') {
+          result[key] = Timestamp.now();
+        }
+      }
+    }
+    return result;
+  }
 
   function docRef(collectionName: CollectionName, id: string) {
     return {
@@ -55,89 +71,27 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Re
     };
   }
 
-  function stripSentinels(data: Doc, existing: Doc | undefined): Doc {
-    const result: Doc = { ...data };
-    for (const [key, value] of Object.entries(data)) {
-      if (value && typeof value === 'object' && '__op' in (value as Record<string, unknown>)) {
-        const op = (value as { __op: string; amount?: number }).__op;
-        if (op === 'increment') {
-          const current = Number((existing as Doc | undefined)?.[key] ?? 0);
-          result[key] = current + Number((value as { amount: number }).amount);
-        } else if (op === 'delete') {
-          delete result[key];
-        } else if (op === 'serverTimestamp') {
-          result[key] = Timestamp.now();
-        }
-      }
-    }
-    return result;
-  }
-
   let autoIdCounter = 0;
 
   function collection(name: CollectionName) {
     return {
       doc: (id?: string) => docRef(name, id ?? `auto_${name}_${++autoIdCounter}`),
-      where(field: string, op: string, value: unknown) {
-        const predicates: Array<(d: Doc) => boolean> = [
-          (d) => {
-            const fieldValue = d[field];
-            if (op === '==') return fieldValue === value;
-            if (op === '<=') {
-              const a = fieldValue instanceof Timestamp ? fieldValue.toMillis() : fieldValue;
-              const b = value instanceof Timestamp ? value.toMillis() : value;
-              return typeof a === 'number' && typeof b === 'number' && a <= b;
-            }
-            return false;
-          },
-        ];
-        const query = {
-          _predicates: predicates,
-          where(field2: string, op2: string, value2: unknown) {
-            predicates.push((d: Doc) => {
-              const fieldValue = d[field2];
-              if (op2 === '==') return fieldValue === value2;
-              if (op2 === '<=') {
-                const a = fieldValue instanceof Timestamp ? fieldValue.toMillis() : fieldValue;
-                const b = value2 instanceof Timestamp ? value2.toMillis() : value2;
-                return typeof a === 'number' && typeof b === 'number' && a <= b;
-              }
-              return false;
-            });
-            return query;
-          },
-          get: async () => {
-            const matches = Object.entries(store[name]).filter(([, d]) =>
-              predicates.every((p) => p(d)),
-            );
-            return {
-              docs: matches.map(([id, d]) => ({ id, data: () => d, ref: docRef(name, id) })),
-              size: matches.length,
-            };
-          },
-        };
-        return query;
-      },
     };
   }
 
   const db = {
     collection,
-    runTransaction: async (fn: (t: unknown) => Promise<unknown>) => fn(makeTransaction()),
+    runTransaction: async (fn: (t: unknown) => Promise<unknown>) =>
+      fn({
+        get: async (ref: { get: () => Promise<unknown> }) => ref.get(),
+        update: async (ref: { update: (d: Doc) => Promise<void> }, data: Doc) => ref.update(data),
+        set: async (
+          ref: { set: (d: Doc, o?: { merge?: boolean }) => Promise<void> },
+          data: Doc,
+          opts?: { merge?: boolean },
+        ) => ref.set(data, opts),
+      }),
   };
-
-  function makeTransaction() {
-    return {
-      get: async (ref: { get: () => Promise<unknown> }) => ref.get(),
-      update: async (ref: { id: string; update: (d: Doc) => Promise<void> }, data: Doc) =>
-        ref.update(data),
-      set: async (
-        ref: { id: string; set: (d: Doc, o?: { merge?: boolean }) => Promise<void> },
-        data: Doc,
-        opts?: { merge?: boolean },
-      ) => ref.set(data, opts),
-    };
-  }
 
   return { db, store };
 }
@@ -149,179 +103,113 @@ jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async ()
 jest.mock('../config/plans', () => ({
   getTrialAmount: jest.fn(async () => ({ amount: 1, currency: 'INR' })),
   getSubscriptionAmount: jest.fn(async () => ({ amount: 299, currency: 'INR' })),
+  getSubscriptionPlanId: jest.fn(async () => 'plan_test'),
   getRupeesPerCredit: jest.fn(async () => 1),
 }));
 
 jest.mock('./razorpay.service', () => ({
-  getOrCreateCustomer: jest.fn(async () => ({ customerId: 'cust_1' })),
-  createRecurringRegistration: jest.fn(async () => ({
-    registrationLinkId: 'link_1',
-    shortUrl: 'https://rzp.io/link_1',
-    customerId: 'cust_1',
-  })),
-  chargeRecurringToken: jest.fn(async () => ({ paymentId: 'pay_auto_1', orderId: 'order_1' })),
+  createRecurringSubscription: jest.fn(),
+  fetchSubscription: jest.fn(),
+  cancelSubscription: jest.fn(),
+  verifySubscriptionPaymentSignature: jest.fn(),
 }));
 
-describe('completeMandateRegistration (trial path)', () => {
-  it('grants 5 credits and activates the mandate exactly once, even if called twice with the same paymentId', async () => {
+describe('applyNewMandateEntitlement', () => {
+  it('grants 5 trial credits exactly once, even if called twice with the same paymentId', async () => {
     const { db, store } = makeFakeFirestore({
-      users: { uid1: { phoneNumber: '+911234567890', credits: 10, trialCreditsClaimed: false } },
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, trialCreditsClaimed: false, subscriptionId: 'sub_1' } },
+      subscriptions: { sub_1: { userId: 'uid1', planId: 'trial', status: 'authenticated' } },
     });
     const { adminFirestore } = await import('../config/firebase-admin');
     (adminFirestore as jest.Mock).mockReturnValue(db);
-    const { completeMandateRegistration } = await import('./mandate.service');
+    const { applyNewMandateEntitlement } = await import('./mandate.service');
 
-    await completeMandateRegistration('uid1', 'tok_1', 'pay_1', 'trial');
-    await completeMandateRegistration('uid1', 'tok_1', 'pay_1', 'trial'); // redelivered webhook
+    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', { via: 'webhook' });
+    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', { via: 'client_verify' }); // redelivered
 
-    expect(store.users.uid1.credits).toBe(15); // +5 once, not +10
+    expect(store.users.uid1.credits).toBe(5); // +5 once, not +10
     expect(store.users.uid1.trialCreditsClaimed).toBe(true);
-    // No prior startRegistration/startTrialOrder call in this test, so
-    // completeMandateRegistration's self-healing path starts a fresh cycle
-    // and points users.uid1.subscriptionId at it.
-    const subscriptionId = store.users.uid1.subscriptionId as string;
-    expect(subscriptionId).toBeTruthy();
-    expect(store.subscriptions[subscriptionId]).toMatchObject({
-      userId: 'uid1',
-      planId: 'trial',
-      status: 'active', // trial vs. paid is distinguished by planId, not a separate status
-      razorpayTokenId: 'tok_1',
-    });
     expect(store.users.uid1.mandateStatus).toBe('active');
-    expect(store.users.uid1.razorpayTokenId).toBe('tok_1');
+    expect(store.subscriptions.sub_1).toMatchObject({ status: 'active' });
   });
 
-  it('does not grant a second trial gift even via a different paymentId, once trialCreditsClaimed is true', async () => {
+  it('credits the subscription amount worth of credits for a direct (non-trial) registration', async () => {
     const { db, store } = makeFakeFirestore({
-      users: { uid1: { phoneNumber: '+911234567890', credits: 10, trialCreditsClaimed: true } },
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, subscriptionId: 'sub_2' } },
+      subscriptions: { sub_2: { userId: 'uid1', planId: 'plus', status: 'authenticated' } },
     });
     const { adminFirestore } = await import('../config/firebase-admin');
     (adminFirestore as jest.Mock).mockReturnValue(db);
-    const { completeMandateRegistration } = await import('./mandate.service');
+    const { applyNewMandateEntitlement } = await import('./mandate.service');
 
-    await completeMandateRegistration('uid1', 'tok_2', 'pay_2', 'trial');
-
-    expect(store.users.uid1.credits).toBe(10); // unchanged — already claimed
-  });
-});
-
-describe('completeMandateRegistration (direct_subscription path)', () => {
-  it('credits the subscription amount worth of credits via the wallet ledger', async () => {
-    const { db, store } = makeFakeFirestore({
-      users: { uid1: { phoneNumber: '+911234567890', credits: 0, trialCreditsClaimed: true } },
-    });
-    const { adminFirestore } = await import('../config/firebase-admin');
-    (adminFirestore as jest.Mock).mockReturnValue(db);
-    const { completeMandateRegistration } = await import('./mandate.service');
-
-    await completeMandateRegistration('uid1', 'tok_3', 'pay_3', 'direct_subscription');
+    await applyNewMandateEntitlement('uid1', 'sub_2', 'pay_2', { via: 'webhook' });
 
     expect(store.users.uid1.credits).toBe(299); // Rs.299 at rupeesPerCredit=1
     expect(store.users.uid1.mandateStatus).toBe('active');
   });
 });
 
-describe('processDueAutoDebits', () => {
-  it('charges a due mandate, credits the result, and advances the schedule by 30 days', async () => {
-    const past = Timestamp.fromMillis(Date.now() - 1000);
+describe('applyNewMandateRenewal', () => {
+  it('credits the subscription amount and is idempotent per paymentId', async () => {
     const { db, store } = makeFakeFirestore({
-      users: {
-        uid1: {
-          phoneNumber: '+911234567890',
-          credits: 5,
-          mandateStatus: 'active',
-          razorpayCustomerId: 'cust_1',
-          razorpayTokenId: 'tok_1',
-          nextAutoDebitAt: past,
-          nextAutoDebitAmount: 299,
-        },
-      },
+      users: { uid1: { phoneNumber: '+911234567890', credits: 5, subscriptionId: 'sub_3' } },
+      subscriptions: { sub_3: { userId: 'uid1', planId: 'plus', status: 'active' } },
     });
     const { adminFirestore } = await import('../config/firebase-admin');
     (adminFirestore as jest.Mock).mockReturnValue(db);
-    const { processDueAutoDebits } = await import('./mandate.service');
+    const { applyNewMandateRenewal } = await import('./mandate.service');
 
-    const result = await processDueAutoDebits();
+    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3');
+    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3'); // redelivered webhook
 
-    expect(result).toEqual({ charged: 1, failed: 0 });
-    expect(store.users.uid1.credits).toBe(304); // 5 + 299
-    expect(store.users.uid1.graceUntil).toBeUndefined();
+    expect(store.users.uid1.credits).toBe(304); // 5 + 299 once, not twice
   });
+});
 
-  it('opens a grace period without touching credits when the charge throws', async () => {
-    const past = Timestamp.fromMillis(Date.now() - 1000);
+describe('checkNewMandateStatus', () => {
+  it('credits the entitlement if Razorpay reports it captured but local state has not caught up', async () => {
     const { db, store } = makeFakeFirestore({
-      users: {
-        uid1: {
-          phoneNumber: '+911234567890',
-          credits: 5,
-          mandateStatus: 'active',
-          razorpayCustomerId: 'cust_1',
-          razorpayTokenId: 'tok_1',
-          nextAutoDebitAt: past,
-          nextAutoDebitAmount: 299,
-        },
-      },
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, subscriptionId: 'sub_4' } },
+      subscriptions: { sub_4: { userId: 'uid1', planId: 'trial', status: 'created' } },
     });
     const { adminFirestore } = await import('../config/firebase-admin');
     (adminFirestore as jest.Mock).mockReturnValue(db);
     const razorpayService = await import('./razorpay.service');
-    (razorpayService.chargeRecurringToken as jest.Mock).mockRejectedValueOnce(
-      new Error('card declined'),
-    );
-    const { processDueAutoDebits } = await import('./mandate.service');
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'active' });
+    const { checkNewMandateStatus } = await import('./mandate.service');
 
-    const result = await processDueAutoDebits();
+    const status = await checkNewMandateStatus('uid1', 'sub_4');
 
-    expect(result).toEqual({ charged: 0, failed: 1 });
-    expect(store.users.uid1.credits).toBe(5); // untouched
-    expect(store.users.uid1.graceUntil).toBeDefined();
-    expect(store.users.uid1.lastPaymentFailureReason).toBe('card declined');
+    expect(status).toBe('active');
+    expect(store.users.uid1.credits).toBe(5);
+    expect(store.users.uid1.mandateStatus).toBe('active');
   });
 
-  it('never opens a grace period or leaves the schedule unmoved when the charge succeeds but crediting then fails', async () => {
-    // This is the money-safety case: Razorpay has already taken the payment
-    // by the time chargeRecurringToken resolves. A bookkeeping failure after
-    // that (recordTransaction throwing here) must NOT look like a failed
-    // charge — that would wrongly grace-period a user who already paid, and
-    // (critically) leave nextAutoDebitAt unmoved, which would make the next
-    // hourly run charge them a second time for the same cycle.
-    const past = Timestamp.fromMillis(Date.now() - 1000);
+  it('does not re-credit an already-entitled cycle, just syncs status', async () => {
     const { db, store } = makeFakeFirestore({
-      users: {
-        uid1: {
-          phoneNumber: '+911234567890',
-          credits: 5,
-          mandateStatus: 'active',
-          razorpayCustomerId: 'cust_1',
-          razorpayTokenId: 'tok_1',
-          nextAutoDebitAt: past,
-          nextAutoDebitAmount: 299,
-        },
-      },
+      users: { uid1: { phoneNumber: '+911234567890', credits: 5, subscriptionId: 'sub_5' } },
+      subscriptions: { sub_5: { userId: 'uid1', planId: 'trial', status: 'active' } },
     });
     const { adminFirestore } = await import('../config/firebase-admin');
     (adminFirestore as jest.Mock).mockReturnValue(db);
-    const transactionsService = await import('./transactions.service');
-    (transactionsService.recordTransaction as jest.Mock).mockRejectedValueOnce(
-      new Error('firestore hiccup'),
-    );
-    const { processDueAutoDebits } = await import('./mandate.service');
+    const razorpayService = await import('./razorpay.service');
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'active' });
+    const { checkNewMandateStatus } = await import('./mandate.service');
 
-    const result = await processDueAutoDebits();
+    await checkNewMandateStatus('uid1', 'sub_5');
 
-    expect(result).toEqual({ charged: 0, failed: 1 });
-    // Not a "failed charge" — no grace period opened, no failure reason on the user.
-    expect(store.users.uid1.graceUntil).toBeUndefined();
-    expect(store.users.uid1.lastPaymentFailureReason).toBeUndefined();
-    // The schedule was still advanced, so the next hourly run won't charge again.
-    expect((store.users.uid1.nextAutoDebitAt as Timestamp).toMillis()).toBeGreaterThan(past.toMillis());
-    // The successful charge is durably recorded for manual reconciliation.
-    expect(store.failedCredits.pay_auto_1).toMatchObject({
-      userId: 'uid1',
-      paymentId: 'pay_auto_1',
-      amountRupees: 299,
-      resolved: false,
+    expect(store.users.uid1.credits).toBe(5); // unchanged
+  });
+
+  it('throws if the subscription does not belong to the caller', async () => {
+    const { db } = makeFakeFirestore({
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0 } },
+      subscriptions: { sub_6: { userId: 'someone_else', planId: 'trial', status: 'created' } },
     });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { checkNewMandateStatus } = await import('./mandate.service');
+
+    await expect(checkNewMandateStatus('uid1', 'sub_6')).rejects.toThrow();
   });
 });

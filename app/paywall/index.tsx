@@ -11,7 +11,7 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
-  openRazorpayCheckout,
+  openRazorpaySubscriptionCheckout,
   startTrialOrder,
   verifyTrialPayment,
 } from '@/services/payment.service';
@@ -117,12 +117,11 @@ export default function PaywallScreen() {
     setProcessing(true);
     setError(null);
     try {
-      const order = await startTrialOrder(REGISTRATION_METHOD);
-      const result = await openRazorpayCheckout(order, {
+      const subscription = await startTrialOrder(REGISTRATION_METHOD);
+      const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Start your trial',
         contact: session?.phoneNumber ?? undefined,
-        customerId: order.customerId,
         method: REGISTRATION_METHOD,
       });
       // Ask the backend to confirm right away (signature-checked); if

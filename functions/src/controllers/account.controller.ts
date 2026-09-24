@@ -29,9 +29,21 @@ export async function deleteAccount(req: Request, res: Response): Promise<void> 
 
   // Mandate state lives on the user doc itself, so deleting it also drops
   // the saved Razorpay token reference — no separate subscription doc.
+  //
+  // payments/trial_credits_{uid} is deliberately included here even though
+  // this function otherwise leaves financial/audit records alone
+  // (transactions, subscriptions, payments/{paymentId}) — it isn't a real
+  // payment record, it's purely an internal idempotency guard keyed by phone
+  // number (see credits.service.ts... mandate.service.ts's
+  // grantTrialCreditsOnce). Leaving it meant a user who deleted their
+  // account and signed up again with the same number would pay for the
+  // Rs.1 trial a second time and receive zero credits — the code would see
+  // the stale ledger from the deleted account and assume the one-time gift
+  // was already given. Confirmed live in production before this fix.
   await Promise.all([
     db.collection('users').doc(uid).delete(),
     db.collection('reports').doc(uid).delete(),
+    db.collection('payments').doc(`trial_credits_${uid}`).delete(),
     userProfileId ? db.collection('userProfiles').doc(userProfileId).delete() : Promise.resolve(),
   ]);
 

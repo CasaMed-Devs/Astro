@@ -5,19 +5,10 @@ import { getRupeesPerCredit } from '../config/plans';
 import { recordKundaliPayment } from '../controllers/payment.controller';
 import { creditWallet } from './credits.service';
 import { recordTransaction, type TransactionVia } from './transactions.service';
-import {
-  applySubscriptionPayment,
-  completeMandateRegistration,
-  reconcileMandateStatus,
-} from './mandate.service';
+import { checkNewMandateStatus } from './mandate.service';
 import type { PaymentOrderPurpose } from './paymentOrders.service';
-import {
-  fetchOrderPayments,
-  findMandateTokenId,
-  paiseToRupees,
-  type OrderPayment,
-} from './razorpay.service';
-import type { MandateStatus } from '../types';
+import { fetchOrderPayments, paiseToRupees, type OrderPayment } from './razorpay.service';
+import type { MandateStatus, UserProfileRecord } from '../types';
 
 const ORDER_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ORDERS_PER_RUN = 20;
@@ -25,11 +16,14 @@ const MAX_ORDERS_PER_RUN = 20;
 export type ApplyResult = { status: 'applied'; credits: number } | { status: 'pending' };
 
 /**
- * Applies one captured Razorpay payment to the user's account, by purpose.
- * Shared by reconciliation and the webhook. Every branch reuses an existing
- * idempotent writer keyed by the real Razorpay payment id (payments/{id} or
- * payments/registration_{id}), so the client verify, the webhook and
- * reconciliation can all run for the same payment without double-crediting.
+ * Applies one captured Razorpay payment to the user's account, by purpose —
+ * for the remaining one-time order purposes (top-up, kundali report unlock).
+ * Mandate/subscription payments are reconciled separately, by checkNewMandateStatus
+ * below (Razorpay owns that schedule directly now, so there's no local order
+ * to reconcile against). Shared by reconciliation and the webhook; both
+ * branches reuse an existing idempotent writer keyed by the real Razorpay
+ * payment id, so the client verify, the webhook and reconciliation can all
+ * run for the same payment without double-crediting.
  */
 export async function applyCapturedPayment(
   uid: string,
@@ -64,21 +58,6 @@ export async function applyCapturedPayment(
       return { status: 'applied', credits: result.creditsAwarded };
     }
 
-    case 'subscription':
-      await applySubscriptionPayment(uid, payment.id, options);
-      return { status: 'applied', credits: 0 };
-
-    case 'trial':
-    case 'direct_subscription': {
-      const userSnapshot = await adminFirestore().collection('users').doc(uid).get();
-      const customerId = userSnapshot.data()?.razorpayCustomerId as string | undefined;
-      const tokenId = payment.token_id ?? (await findMandateTokenId(payment.id, customerId));
-      // Razorpay hasn't issued the mandate token yet — try again next time.
-      if (!tokenId) return { status: 'pending' };
-      await completeMandateRegistration(uid, tokenId, payment.id, purpose, options);
-      return { status: 'applied', credits: 0 };
-    }
-
     case 'report':
       await recordKundaliPayment(
         uid,
@@ -111,13 +90,19 @@ export interface ReconcileResult {
 /**
  * Last-resort safety net behind the client verify and the webhook: for the
  * user's recent unresolved orders, ask Razorpay whether a payment was
- * captured and apply it if so. Also re-checks the user's mandate token
- * health directly against Razorpay. Called by the app when it returns to the
- * foreground. Safe to call repeatedly and concurrently.
+ * captured and apply it if so. Also re-checks the user's mandate directly
+ * against Razorpay. Called by the app when it returns to the foreground.
+ * Safe to call repeatedly and concurrently.
  */
 export async function reconcilePayments(uid: string): Promise<ReconcileResult> {
   const db = adminFirestore();
-  const mandateStatus = await reconcileMandateStatus(uid);
+
+  const userSnapshot = await db.collection('users').doc(uid).get();
+  const user = userSnapshot.data() as UserProfileRecord | undefined;
+  const mandateStatus = user?.subscriptionId
+    ? await checkNewMandateStatus(uid, user.subscriptionId)
+    : (user?.mandateStatus ?? 'none');
+
   const snapshot = await db
     .collection('paymentOrders')
     .where('userId', '==', uid)

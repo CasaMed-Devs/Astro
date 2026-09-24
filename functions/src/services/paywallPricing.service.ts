@@ -26,7 +26,17 @@ export interface TopUpConfig {
 export interface PaywallPricingRecord {
   creditPricing?: CreditPricing;
   trialAmount?: PaywallPrice;
+  // The legacy token engine's display/charge price (config/plans.ts's
+  // getSubscriptionAmount) — left as-is, still used for every pre-existing
+  // mandate registered before the Subscriptions API switch.
   subscriptionAmount?: PaywallPrice;
+  // Separate field, deliberately not merged into subscriptionAmount above:
+  // this is where the real Razorpay Plan ID for the Subscriptions-API engine
+  // lives (see mandate.service.ts's startNewMandateSubscription). Confirmed
+  // already present in production at
+  // appConfig/paywallPricing.subscription.razorpayPlanId — apparently set up
+  // for this switch before, then unused until now.
+  subscription?: PaywallPrice & { razorpayPlanId?: string };
   report?: PaywallPrice;
   topUp?: TopUpConfig;
 }

@@ -11,26 +11,26 @@ export type MandateMethod = 'card' | 'upi';
 
 /**
  * Shared lifecycle vocabulary for both users/{uid}.mandateStatus and every
- * subscriptions/{cycleId}.status — one enum, so the two never drift into
- * different vocabularies again (they used to: this doc's status could be
- * 'trialing'/'past_due', values mandateStatus never actually took).
+ * subscriptions/{cycleId}.status. Every mandate is registered via Razorpay's
+ * Subscriptions API (mandate.service.ts's startNewMandateSubscription) —
+ * Razorpay owns billing/retries/lifecycle entirely and reports its OWN
+ * status strings directly (see node_modules/razorpay's
+ * Subscriptions.RazorpaySubscription type), which this enum mirrors:
  *
  *   none          no registration ever started
- *   created       registration order/link created, no payment attempted yet
- *   authenticated Razorpay captured the payment, but the recurring token
- *                 isn't confirmed yet — a real, previously invisible gap:
- *                 webhook.controller.ts's payment.captured handler waits for
- *                 token_id before doing anything, so a UPI mandate mid
- *                 bank-approval looked IDENTICAL to "never touched" before.
- *   active        token confirmed — mandate is live, auto-debits will fire.
- *                 Covers trial AND paid alike; which one is on
+ *   created       registration created, no payment attempted yet
+ *   authenticated Razorpay captured the mandate's first payment, but it
+ *                 isn't fully confirmed active yet.
+ *   active        mandate is live, Razorpay will charge it on its own
+ *                 schedule. Covers trial AND paid alike; which one is on
  *                 subscriptions/{cycleId}.planId ('trial' | 'plus'), not a
- *                 separate status value — splitting trial into its own live
- *                 status would silently drop trial users out of
- *                 processDueAutoDebits's `where('mandateStatus','==','active')`
- *                 query unless every such check were updated too.
- *   past_due      an auto-debit charge failed; inside the 3-day grace period
- *   cancelled     grace period expired, or otherwise terminated
+ *                 separate status value.
+ *   pending       a charge is due but hasn't been attempted yet.
+ *   halted        Razorpay's own retry attempts on a failed charge were
+ *                 exhausted.
+ *   completed     every billing cycle (total_count) has been charged; the
+ *                 subscription naturally ended.
+ *   cancelled     mandate was cancelled (by the user or by Razorpay).
  *   expired       registration abandoned (no payment) — reserved for a future
  *                 sweep mirroring paymentOrders' 7-day expiry; not yet written
  *                 by any code path today.
@@ -40,7 +40,9 @@ export type MandateStatus =
   | 'created'
   | 'authenticated'
   | 'active'
-  | 'past_due'
+  | 'pending'
+  | 'halted'
+  | 'completed'
   | 'cancelled'
   | 'expired';
 
@@ -59,25 +61,16 @@ export interface UserProfileRecord {
   // mandate registration — never granted again, even if the mandate is
   // later cancelled and re-registered.
   trialCreditsClaimed?: boolean;
-  razorpayCustomerId?: string;
-  // The saved card/UPI mandate token used for auto-debit charges.
-  razorpayTokenId?: string;
   mandateMethod?: MandateMethod;
   mandateStatus?: MandateStatus;
-  // When the next scheduled auto-debit should fire (day-2 after the trial,
-  // then every 30 days thereafter).
-  nextAutoDebitAt?: FirebaseFirestore.Timestamp;
-  nextAutoDebitAmount?: number; // Rupees
-  // Set when an auto-debit charge fails; cleared on the next success.
-  graceUntil?: FirebaseFirestore.Timestamp;
-  lastPaymentFailureReason?: string;
   // Set once the one-time Rs.49 kundali payment is verified — lifetime access.
   kundaliUnlocked?: boolean;
   kundaliUnlockedAt?: FirebaseFirestore.Timestamp;
-  // Points at the user's CURRENT subscription-cycle doc: subscriptions/{autoId}.
-  // Owned exclusively by mandate.service.ts (startSubscriptionCycle sets it on
-  // every new mandate registration; updateCurrentSubscription never changes
-  // it). One doc per registration lifecycle, not per user — a cancel-then-
+  // Points at the user's CURRENT subscription-cycle doc:
+  // subscriptions/{razorpaySubscriptionId}. Owned exclusively by
+  // mandate.service.ts (startSubscriptionCycleFromRazorpay sets it on every
+  // new mandate registration; updateCurrentSubscription never changes it).
+  // One doc per registration lifecycle, not per user — a cancel-then-
   // re-register gets a fresh id here, so a prior cycle's history is never
   // overwritten. transactions.service.ts only reads this field, never writes it.
   subscriptionId?: string;
@@ -86,26 +79,22 @@ export interface UserProfileRecord {
 }
 
 /**
- * subscriptions/{cycleId} — one doc per mandate-registration lifecycle (see
- * mandate.service.ts's startSubscriptionCycle/updateCurrentSubscription),
- * not one per user. Doc id is a generated id, referenced by
- * users/{uid}.subscriptionId, which always points at the CURRENT cycle.
+ * subscriptions/{razorpaySubscriptionId} — one doc per mandate-registration
+ * lifecycle (see mandate.service.ts's startSubscriptionCycleFromRazorpay/
+ * updateCurrentSubscription), not one per user. Doc id is the real Razorpay
+ * subscription id, referenced by users/{uid}.subscriptionId, which always
+ * points at the CURRENT cycle.
  */
 export interface SubscriptionCycleRecord {
   userId: string;
   planId: 'trial' | 'plus';
   status: MandateStatus;
   mandateMethod?: MandateMethod;
-  razorpayCustomerId?: string;
-  razorpayTokenId?: string;
   registrationAmount?: number; // Rupees — the authorization amount at registration time
   lastPaymentId?: string;
   lastPaymentAmount?: number; // Rupees
   lastPaymentAt?: FirebaseFirestore.Timestamp;
   currentPeriodStart?: FirebaseFirestore.Timestamp;
-  nextAutoDebitAt?: FirebaseFirestore.Timestamp;
-  nextAutoDebitAmount?: number; // Rupees
-  lastPaymentFailureReason?: string;
   lastTransactionId?: string; // transactions/{id}
   createdAt?: FirebaseFirestore.Timestamp;
   updatedAt?: FirebaseFirestore.Timestamp;

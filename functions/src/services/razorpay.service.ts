@@ -68,10 +68,6 @@ export async function fetchOrder(orderId: string) {
   return client.orders.fetch(orderId);
 }
 
-export async function fetchPayment(paymentId: string) {
-  return getClient().payments.fetch(paymentId);
-}
-
 export interface OrderPayment {
   id: string;
   status: string;
@@ -87,88 +83,6 @@ export async function fetchOrderPayments(orderId: string): Promise<OrderPayment[
     items?: OrderPayment[];
   };
   return result.items ?? [];
-}
-
-/**
- * Best-effort lookup of the mandate token for a just-completed registration
- * payment: the payment entity carries `token_id` for recurring payments; if
- * it's not there yet, fall back to the customer's newest saved token.
- * Returns null when Razorpay hasn't created the token yet (e.g. a UPI
- * mandate still confirming) — the webhook completes registration then.
- */
-export async function findMandateTokenId(
-  paymentId: string,
-  customerId?: string,
-): Promise<string | null> {
-  const payment = (await fetchPayment(paymentId)) as unknown as {
-    token_id?: string | null;
-    customer_id?: string | null;
-    status?: string;
-  };
-  if (payment.token_id) return payment.token_id;
-
-  const customer = customerId ?? payment.customer_id ?? undefined;
-  if (!customer || (payment.status !== 'captured' && payment.status !== 'authorized')) return null;
-
-  const tokens = (await getClient().customers.fetchTokens(customer)) as unknown as {
-    items?: { id: string; recurring?: boolean; created_at?: number }[];
-  };
-  const newest = (tokens.items ?? [])
-    .filter((t) => t.recurring !== false)
-    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
-  return newest?.id ?? null;
-}
-
-export interface MandateTokenStatus {
-  /** Whether this token can still be charged, per Razorpay's own record. */
-  isLive: boolean;
-  /** Razorpay's raw token lifecycle status, when present ('active'/'suspended'/'deactivated'/'initiated'). */
-  status?: string;
-  /** The recurring-specific status (more authoritative for UPI/emandate methods). */
-  recurringStatus?: string;
-  failureReason?: string | null;
-}
-
-/**
- * Ground truth for "is this mandate still actually chargeable," straight
- * from Razorpay — Astro's local mandateStatus can otherwise only learn a
- * mandate has died reactively, the next time a scheduled auto-debit attempt
- * fails against it. Used by reconcileMandateStatus (mandate.service.ts) to
- * self-correct local state instead of waiting for that failure.
- */
-export async function fetchMandateTokenStatus(
-  customerId: string,
-  tokenId: string,
-): Promise<MandateTokenStatus | null> {
-  try {
-    const token = (await getClient().customers.fetchToken(customerId, tokenId)) as unknown as {
-      recurring?: boolean;
-      status?: string;
-      recurring_details?: { status?: string; failure_reason?: string | null };
-    };
-
-    const recurringStatus = token.recurring_details?.status;
-    // A token entity generally omits `status` for card tokens (only emandate/
-    // recurring-specific tokens set it) — treat "not present" as fine, and
-    // only treat explicitly bad values as dead.
-    const statusIsBad = token.status === 'suspended' || token.status === 'deactivated';
-    const recurringStatusIsBad =
-      recurringStatus != null &&
-      !['confirmed', 'active', 'authenticated'].includes(recurringStatus);
-
-    return {
-      isLive: token.recurring !== false && !statusIsBad && !recurringStatusIsBad,
-      status: token.status,
-      recurringStatus,
-      failureReason: token.recurring_details?.failure_reason ?? null,
-    };
-  } catch (error) {
-    // A 404 here most often means the token/customer no longer exists on
-    // Razorpay's side at all — treat as dead rather than throwing, since
-    // this is a background health-check, not a payment-critical call.
-    console.warn(`[razorpay] fetchMandateTokenStatus failed for token ${tokenId}`, error);
-    return null;
-  }
 }
 
 export interface VerifySignatureInput {
@@ -203,192 +117,6 @@ export function verifyPaymentSignature(input: VerifySignatureInput): void {
   }
 }
 
-// 10 years — Razorpay requires an expiry on a mandate; this just means
-// "don't expire it on us", not a real subscription term.
-const MANDATE_EXPIRE_AT = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 60 * 60;
-// Upper bound Razorpay enforces per auto-debit under this mandate.
-const MANDATE_MAX_AMOUNT_RUPEES = 500;
-
-export interface CreatedRegistration {
-  registrationLinkId: string;
-  shortUrl: string;
-  // The Razorpay Customer Razorpay itself created/matched for this
-  // registration — read from the API response, not chosen by us (the
-  // registration-link endpoint takes an inline `customer` object, not a
-  // pre-existing customer_id).
-  customerId: string;
-}
-
-/**
- * Registers a recurring mandate (card or UPI Autopay) via Razorpay's
- * Recurring Payments "registration link" product — distinct from the rigid
- * Plan+cycle Subscriptions API. The user completes the hosted `shortUrl` to
- * pay the authorization amount and grant the mandate; Razorpay confirms via
- * the `payment.captured`/`token.confirmed` webhooks (see webhook.controller.ts),
- * which is the source of truth — this call only kicks the flow off.
- *
- * `frequency: 'as_presented'` tells Razorpay/the bank this mandate is
- * charged whenever we (the merchant) present a debit, not on a fixed
- * calendar date — matching our own day-2-then-every-30-days schedule
- * (see mandate.service.ts), which a fixed frequency couldn't express.
- */
-export async function createRecurringRegistration(
-  name: string,
-  email: string,
-  contact: string,
-  authorizationAmountRupees: number,
-  method: 'card' | 'upi',
-  notes?: Record<string, string>,
-): Promise<CreatedRegistration> {
-  const client = getClient();
-  const link = await client.subscriptions.createRegistrationLink({
-    customer: { name, email, contact },
-    type: 'link',
-    amount: rupeesToPaise(authorizationAmountRupees),
-    currency: 'INR',
-    description: 'Astro101 recurring mandate setup',
-    subscription_registration: {
-      method,
-      max_amount: rupeesToPaise(MANDATE_MAX_AMOUNT_RUPEES),
-      expire_at: MANDATE_EXPIRE_AT,
-      frequency: 'as_presented',
-    },
-    notes,
-  } as unknown as Parameters<Razorpay['subscriptions']['createRegistrationLink']>[0]);
-
-  const raw = link as unknown as { id: string; short_url: string; customer_id: string };
-  return { registrationLinkId: raw.id, shortUrl: raw.short_url, customerId: raw.customer_id };
-}
-
-/**
- * Razorpay rejects creating a Customer that already exists for the merchant
- * (a retried trial, or one created earlier by a registration link). Reuse the
- * customer we stored, else create with fail_existing off, else look it up by
- * the stable synthetic email.
- */
-async function getOrCreateCustomer(
-  client: Razorpay,
-  name: string,
-  email: string,
-  contact: string,
-  existingCustomerId?: string,
-): Promise<{ id: string }> {
-  if (existingCustomerId) return { id: existingCustomerId };
-
-  try {
-    return await client.customers.create({
-      name,
-      email,
-      contact,
-      fail_existing: '0',
-    } as unknown as Parameters<Razorpay['customers']['create']>[0]);
-  } catch (err) {
-    const description = (err as { error?: { description?: string } } | null)?.error?.description;
-    if (!description?.toLowerCase().includes('already exists')) throw err;
-
-    const all = await client.customers.all({ count: 100 });
-    const match = all.items.find(
-      (c) => c.email === email || String(c.contact ?? '').replace(/\D/g, '').endsWith(contact.replace(/\D/g, '').slice(-10)),
-    );
-    if (!match) throw err;
-    return { id: match.id };
-  }
-}
-
-export interface CreatedRecurringOrder extends CreatedOrder {
-  customerId: string;
-}
-
-/**
- * In-app alternative to createRecurringRegistration: creates (or matches) the
- * Razorpay Customer and a recurring-enabled Order, so the app can open the
- * native Checkout SDK directly (order_id + customer_id + recurring) instead
- * of redirecting to the hosted registration-link page. The mandate/token is
- * still confirmed via the same `payment.captured`/`token.confirmed` webhooks,
- * keyed off the `uid`/`purpose` notes set here.
- */
-export async function createRecurringOrder(
-  name: string,
-  email: string,
-  contact: string,
-  authorizationAmountRupees: number,
-  method: 'card' | 'upi',
-  receipt: string,
-  notes?: Record<string, string>,
-  existingCustomerId?: string,
-): Promise<CreatedRecurringOrder> {
-  const client = getClient();
-  const customer = await getOrCreateCustomer(client, name, email, contact, existingCustomerId);
-
-  const order = await client.orders.create({
-    amount: rupeesToPaise(authorizationAmountRupees),
-    currency: 'INR',
-    receipt,
-    customer_id: customer.id,
-    method,
-    token: {
-      max_amount: rupeesToPaise(MANDATE_MAX_AMOUNT_RUPEES),
-      expire_at: MANDATE_EXPIRE_AT,
-      frequency: 'as_presented',
-    },
-    notes,
-  } as unknown as Parameters<Razorpay['orders']['create']>[0]);
-
-  return {
-    orderId: order.id,
-    amount: Number(order.amount),
-    currency: order.currency,
-    keyId: env.razorpay.keyId!,
-    customerId: customer.id,
-  };
-}
-
-/**
- * Charges an already-registered mandate (card or UPI) for an arbitrary
- * amount at a time of our choosing — this is what the day-2 and monthly
- * auto-debit scheduler calls, and what "upgrade now" uses to charge
- * immediately. Two-step per Razorpay's Recurring Payments contract: create a
- * plain order tied to the customer, then create a payment against it using
- * the saved token with recurring:1 (no customer present, no checkout UI).
- */
-export async function chargeRecurringToken(
-  customerId: string,
-  tokenId: string,
-  amountRupees: number,
-  receipt: string,
-  contact: string,
-  notes?: Record<string, string>,
-): Promise<{ paymentId: string; orderId: string }> {
-  const client = getClient();
-  // Plain order create — `customer_id` isn't a field on regular orders (it's
-  // only accepted on the separate "authorization" order type); the
-  // customer/token linkage happens below, at payment creation.
-  const order = await client.orders.create({
-    amount: rupeesToPaise(amountRupees),
-    currency: 'INR',
-    receipt,
-    notes,
-  });
-
-  const payment = await client.payments.createRecurringPayment({
-    amount: rupeesToPaise(amountRupees),
-    currency: 'INR',
-    order_id: order.id,
-    customer_id: customerId,
-    token: tokenId,
-    recurring: 1,
-    email: `${customerId}@auto-debit.astro101.app`,
-    contact,
-    notes: notes ?? {},
-  });
-
-  if (!payment.razorpay_payment_id) {
-    throw new PaymentVerificationError('Recurring charge did not return a payment id.');
-  }
-
-  return { paymentId: payment.razorpay_payment_id, orderId: order.id };
-}
-
 export function verifyWebhookSignature(rawBody: string, signature: string): void {
   if (!env.razorpay.webhookSecret) {
     throw new RazorpayNotConfiguredError();
@@ -403,5 +131,109 @@ export function verifyWebhookSignature(rawBody: string, signature: string): void
     !timingSafeEqual(expectedBuffer, actualBuffer)
   ) {
     throw new PaymentVerificationError('Webhook signature mismatch.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Razorpay Subscriptions API — every mandate registration goes through this
+// now (see mandate.service.ts's startNewMandateSubscription). Razorpay owns
+// the billing schedule, retries, and lifecycle entirely; there is no
+// self-initiated charging or scheduled job on our side anymore.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface CreatedSubscription {
+  subscriptionId: string;
+  status: string;
+  shortUrl: string;
+  keyId: string;
+}
+
+/**
+ * Creates a Razorpay Subscription. For a plain (non-trial) signup, this is
+ * just plan_id + total_count — Razorpay bills the plan amount on its own
+ * schedule from the start. For the Rs.1 trial, `addonAmountRupees` (an
+ * immediate one-time charge, separate from the plan) plus `startAtSeconds`
+ * (delaying the plan's own first charge) reproduces the "Rs.1 now, Rs.299
+ * starting tomorrow" schedule — the same pattern Vireel's
+ * createWeeklyTrialSubscription uses, and the reason a fixed-interval
+ * Subscription can still express an irregular first interval.
+ */
+export async function createRecurringSubscription(
+  planId: string,
+  totalCount: number,
+  notes: Record<string, string>,
+  options?: { startAtSeconds?: number; addonAmountRupees?: number; addonName?: string },
+): Promise<CreatedSubscription> {
+  const client = getClient();
+
+  const subscription = await client.subscriptions.create({
+    plan_id: planId,
+    total_count: totalCount,
+    quantity: 1,
+    customer_notify: 1,
+    ...(options?.startAtSeconds ? { start_at: options.startAtSeconds } : {}),
+    ...(options?.addonAmountRupees
+      ? {
+          addons: [
+            {
+              item: {
+                name: options.addonName ?? 'Trial',
+                amount: rupeesToPaise(options.addonAmountRupees),
+                currency: 'INR',
+              },
+            },
+          ],
+        }
+      : {}),
+    notes,
+  } as unknown as Parameters<Razorpay['subscriptions']['create']>[0]);
+
+  return {
+    subscriptionId: subscription.id,
+    status: subscription.status,
+    shortUrl: subscription.short_url,
+    keyId: env.razorpay.keyId!,
+  };
+}
+
+export async function fetchSubscription(subscriptionId: string) {
+  return getClient().subscriptions.fetch(subscriptionId);
+}
+
+/** `cancelAtCycleEnd: true` keeps access/billing live until the current period ends; `false` cancels immediately. */
+export async function cancelSubscription(subscriptionId: string, cancelAtCycleEnd: boolean) {
+  return getClient().subscriptions.cancel(subscriptionId, cancelAtCycleEnd);
+}
+
+/**
+ * Razorpay's documented subscription-checkout signature scheme — DIFFERENT
+ * from verifyPaymentSignature above (which is order_id|payment_id): here it's
+ * HMAC-SHA256(payment_id + '|' + subscription_id, key_secret). The Checkout
+ * SDK returns razorpay_subscription_id (not razorpay_order_id) when checkout
+ * was opened with a subscription_id — see openRazorpayCheckout on the client.
+ */
+export interface VerifySubscriptionSignatureInput {
+  subscriptionId: string;
+  paymentId: string;
+  signature: string;
+}
+
+export function verifySubscriptionPaymentSignature(input: VerifySubscriptionSignatureInput): void {
+  if (!env.razorpay.keySecret) {
+    throw new RazorpayNotConfiguredError();
+  }
+
+  const expected = createHmac('sha256', env.razorpay.keySecret)
+    .update(`${input.paymentId}|${input.subscriptionId}`)
+    .digest('hex');
+
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  const actualBuffer = Buffer.from(input.signature, 'hex');
+
+  if (
+    expectedBuffer.length !== actualBuffer.length ||
+    !timingSafeEqual(expectedBuffer, actualBuffer)
+  ) {
+    throw new PaymentVerificationError();
   }
 }

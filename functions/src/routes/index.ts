@@ -5,6 +5,8 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { createChat, getMessages, listPersonas, sendMessage } from '../controllers/chat.controller';
 import { getTodayHoroscope } from '../controllers/horoscope.controller';
 import {
+  cancelSubscriptionHandler,
+  checkSubscriptionStatusHandler,
   createReportOrder,
   createTopUpOrder,
   getPublicPricing,
@@ -13,7 +15,6 @@ import {
   startSubscriptionOrderHandler,
   startTrialOrderHandler,
   startTrialPayment,
-  upgradeNowHandler,
   verifyReportPayment,
   verifySubscriptionPaymentHandler,
   verifyTrialPaymentHandler,
@@ -63,7 +64,8 @@ router.post('/payments/trial/order', requireAuth, asyncHandler(startTrialOrderHa
 router.post('/payments/subscription/order', requireAuth, asyncHandler(startSubscriptionOrderHandler));
 router.post('/payments/subscription/verify', requireAuth, asyncHandler(verifySubscriptionPaymentHandler));
 router.post('/payments/trial/verify', requireAuth, asyncHandler(verifyTrialPaymentHandler));
-router.post('/payments/subscription/upgrade-now', requireAuth, asyncHandler(upgradeNowHandler));
+router.get('/payments/subscription/status', requireAuth, asyncHandler(checkSubscriptionStatusHandler));
+router.post('/payments/subscription/cancel', requireAuth, asyncHandler(cancelSubscriptionHandler));
 router.post('/payments/report/order', requireAuth, asyncHandler(createReportOrder));
 router.post('/payments/report/verify', requireAuth, asyncHandler(verifyReportPayment));
 router.get('/payments/pricing', requireAuth, asyncHandler(getPublicPricing));

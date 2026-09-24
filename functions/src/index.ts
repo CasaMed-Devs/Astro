@@ -15,5 +15,4 @@ const app = createApp();
 // permissions.
 export const api = onRequest({ region: 'asia-south1' }, app);
 
-export { processAutoDebits } from './scheduled/processAutoDebits';
 export { onUserCreated } from './triggers/onUserCreated';

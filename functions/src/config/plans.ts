@@ -1,5 +1,6 @@
 import { env } from './env';
 import { getPaywallPricingDoc, type TopUpConfig } from '../services/paywallPricing.service';
+import { HttpError } from '../utils/errors';
 
 export interface ResolvedPrice {
   amount: number; // Rupees
@@ -29,6 +30,26 @@ export async function getSubscriptionAmount(): Promise<ResolvedPrice> {
     amount: stored.subscriptionAmount?.amount ?? env.subscriptionAmount.amount,
     currency: stored.subscriptionAmount?.currency ?? env.subscriptionAmount.currency,
   };
+}
+
+class SubscriptionPlanNotConfiguredError extends HttpError {
+  constructor() {
+    super(503, 'Subscriptions are temporarily unavailable. Please check back soon.');
+  }
+}
+
+/**
+ * The Razorpay Plan ID that backs every NEW mandate registration (see
+ * mandate.service.ts's startNewMandateSubscription) — required, no env-var
+ * fallback, since a Plan can only be created on the Razorpay dashboard, never
+ * synthesized. Set via appConfig/paywallPricing.subscription.razorpayPlanId
+ * (the admin dashboard's Pricing page, or directly in Firestore).
+ */
+export async function getSubscriptionPlanId(): Promise<string> {
+  const stored = await getPaywallPricingDoc();
+  const planId = stored.subscription?.razorpayPlanId;
+  if (!planId) throw new SubscriptionPlanNotConfiguredError();
+  return planId;
 }
 
 /**

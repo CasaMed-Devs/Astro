@@ -70,14 +70,11 @@ export function UsersPage() {
             <Row label="Created" value={user.createdAt} />
           </div>
           <div className="card">
-            <h2>Auto-debit mandate</h2>
+            <h2>Mandate (Razorpay Subscriptions)</h2>
             <Row label="Status" value={user.mandate.status} />
             <Row label="Method" value={user.mandate.method} />
             <Row label="Trial credits claimed" value={user.mandate.trialCreditsClaimed ? 'yes' : 'no'} />
-            <Row label="Next auto-debit at" value={user.mandate.nextAutoDebitAt} />
-            <Row label="Next auto-debit amount (Rs.)" value={user.mandate.nextAutoDebitAmount} />
-            <Row label="Grace period until" value={user.mandate.graceUntil} />
-            <Row label="Last payment failure" value={user.mandate.lastPaymentFailureReason} />
+            <Row label="Subscription id" value={user.mandate.subscriptionId} />
           </div>
         </>
       ) : null}

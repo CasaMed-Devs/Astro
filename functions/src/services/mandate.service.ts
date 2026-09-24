@@ -1,30 +1,20 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getRupeesPerCredit, getSubscriptionAmount, getTrialAmount } from '../config/plans';
+import { getRupeesPerCredit, getSubscriptionAmount, getSubscriptionPlanId, getTrialAmount } from '../config/plans';
 import {
-  chargeRecurringToken,
-  createRecurringOrder,
-  createOrder,
-  createRecurringRegistration,
-  fetchMandateTokenStatus,
-  fetchOrder,
-  findMandateTokenId,
-  verifyPaymentSignature,
-  type CreatedOrder,
-  type CreatedRecurringOrder,
-  type VerifySignatureInput,
+  cancelSubscription as cancelRazorpaySubscription,
+  createRecurringSubscription,
+  fetchSubscription,
+  verifySubscriptionPaymentSignature,
+  type VerifySubscriptionSignatureInput,
 } from './razorpay.service';
-import { creditWallet, getRemainingCredits } from './credits.service';
-import { recordPaymentOrder } from './paymentOrders.service';
+import { creditWallet } from './credits.service';
 import { recordTransaction, type TransactionVia } from './transactions.service';
-import { getUserProfile } from './userProfile.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateMethod, MandateStatus, SubscriptionCycleRecord, UserProfileRecord } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MONTH_MS = 30 * DAY_MS;
-const GRACE_PERIOD_MS = 3 * DAY_MS;
 
 /** Where a payment was confirmed from; when omitted, no transactions/ record is written. */
 export interface TransactionOptions {
@@ -33,17 +23,15 @@ export interface TransactionOptions {
   paymentMethod?: string | null;
 }
 
-/**
- * Starts a new subscription "cycle" doc — subscriptions/{autoId}, one per
- * mandate-registration lifecycle (a trial registration, or a direct-to-
- * subscription registration), not one per user. This means a user who
- * cancels and later re-registers gets a fresh doc rather than having their
- * prior cycle's history overwritten in place. Points users/{uid}.subscriptionId
- * at the new doc so subsequent renewals/status updates land on the same
- * cycle — see updateCurrentSubscription.
- */
 type SubscriptionCyclePatch = Partial<Omit<SubscriptionCycleRecord, 'userId' | 'createdAt' | 'updatedAt'>>;
 
+/**
+ * Generated-id fallback for starting a cycle without a Razorpay subscription
+ * id in hand — used only by updateCurrentSubscription's self-heal path
+ * below (a defensive case that shouldn't normally trigger, since every real
+ * registration goes through startSubscriptionCycleFromRazorpay instead,
+ * which always has the real id by the time a cycle needs to exist).
+ */
 async function startSubscriptionCycle(uid: string, patch: SubscriptionCyclePatch): Promise<string> {
   const db = adminFirestore();
   const ref = db.collection('subscriptions').doc();
@@ -63,12 +51,44 @@ async function startSubscriptionCycle(uid: string, patch: SubscriptionCyclePatch
 }
 
 /**
+ * Starts a new subscription "cycle" doc — subscriptions/{razorpaySubscriptionId},
+ * one per mandate-registration lifecycle, not one per user, so a user who
+ * cancels and later re-registers gets a fresh doc rather than having their
+ * prior cycle's history overwritten. The doc id IS the real Razorpay
+ * subscription id (fetched from Razorpay's own response, not generated
+ * locally) — see the MandateStatus doc comment in types/index.ts. Points
+ * users/{uid}.subscriptionId at the new doc so subsequent renewals/status
+ * updates land on the same cycle — see updateCurrentSubscription.
+ */
+async function startSubscriptionCycleFromRazorpay(
+  uid: string,
+  razorpaySubscriptionId: string,
+  patch: SubscriptionCyclePatch,
+): Promise<void> {
+  const db = adminFirestore();
+
+  await db
+    .collection('subscriptions')
+    .doc(razorpaySubscriptionId)
+    .set({
+      ...patch,
+      userId: uid,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  await db
+    .collection('users')
+    .doc(uid)
+    .set({ subscriptionId: razorpaySubscriptionId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+/**
  * Updates the user's CURRENT subscription cycle (a renewal, a status change,
- * a failed-charge note, etc.) — never creates a new doc. Resolves the cycle
- * via users/{uid}.subscriptionId (set by startSubscriptionCycle); pass
- * `knownSubscriptionId` when the caller already has the user doc loaded, to
- * skip the extra read. Self-heals by starting a new cycle in the rare case a
- * user has none yet, rather than silently dropping the update.
+ * etc.) — never creates a new doc. Resolves the cycle via
+ * users/{uid}.subscriptionId; pass `knownSubscriptionId` when the caller
+ * already has the user doc loaded, to skip the extra read. Self-heals by
+ * starting a new (generated-id) cycle in the rare case a user has none yet,
+ * rather than silently dropping the update.
  */
 async function updateCurrentSubscription(
   uid: string,
@@ -100,17 +120,13 @@ async function getUserOrThrow(uid: string): Promise<UserProfileRecord> {
   return snapshot.data() as UserProfileRecord;
 }
 
-/** The name shown on the Razorpay customer object — falls back when the user's name isn't set yet. */
-async function getDisplayName(user: UserProfileRecord): Promise<string> {
-  const profile = user.userProfileId ? await getUserProfile(user.userProfileId) : undefined;
-  return profile?.name ?? 'Astro101 User';
-}
-
 /**
  * Grants the one-time 5-credit trial gift, idempotent per user forever (not
  * just per payment) — keyed by a fixed ledger doc id so even a retried
  * completion call can't grant it twice, on top of the trialCreditsClaimed
- * flag fast-path check.
+ * flag fast-path check. (account.controller.ts's deleteAccount also deletes
+ * this ledger doc, so a deleted-and-recreated account isn't wrongly blocked
+ * from ever claiming the gift again.)
  */
 async function grantTrialCreditsOnce(uid: string): Promise<void> {
   const db = adminFirestore();
@@ -143,769 +159,307 @@ async function grantTrialCreditsOnce(uid: string): Promise<void> {
   });
 }
 
+export interface NewMandateSubscription {
+  subscriptionId: string;
+  shortUrl: string;
+  status: string;
+  keyId: string;
+}
+
+const SUBSCRIPTION_TOTAL_COUNT = 120; // ~10 years of monthly cycles.
+
+/**
+ * Starts a brand-new mandate via Razorpay's Subscriptions API — Razorpay
+ * itself owns the billing schedule and retries entirely from here on. Used
+ * for both the Rs.1 trial (`trial` — an addon charge now, the real plan
+ * delayed via start_at) and skipping the trial entirely (`direct_subscription`
+ * — the plan bills immediately).
+ */
+async function startNewMandateSubscription(
+  uid: string,
+  method: MandateMethod,
+  purpose: 'trial' | 'direct_subscription',
+): Promise<NewMandateSubscription> {
+  const planId = await getSubscriptionPlanId();
+  const subscriptionAmount = await getSubscriptionAmount();
+  const trial = purpose === 'trial' ? await getTrialAmount() : null;
+
+  const subscription = await createRecurringSubscription(
+    planId,
+    SUBSCRIPTION_TOTAL_COUNT,
+    { uid, purpose },
+    trial
+      ? {
+          startAtSeconds: Math.floor((Date.now() + DAY_MS) / 1000),
+          addonAmountRupees: trial.amount,
+          addonName: 'Astro101 Trial',
+        }
+      : undefined,
+  );
+
+  await startSubscriptionCycleFromRazorpay(uid, subscription.subscriptionId, {
+    planId: purpose === 'trial' ? 'trial' : 'plus',
+    status: subscription.status as MandateStatus,
+    mandateMethod: method,
+    registrationAmount: trial ? trial.amount : subscriptionAmount.amount,
+  });
+
+  await adminFirestore().collection('users').doc(uid).set(
+    {
+      mandateMethod: method,
+      mandateStatus: subscription.status,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return subscription;
+}
+
 export interface StartRegistrationResult {
-  registrationLinkId: string;
+  subscriptionId: string;
   shortUrl: string;
 }
 
 /**
- * Kicks off mandate registration — used both for the Rs.1 trial (first-time
- * users) and for "upgrade now" when no mandate exists yet (skips the trial,
- * registers directly at the subscription amount). The actual mandate/credit
- * grant only happens once Razorpay confirms via webhook — this call just
- * returns the hosted page the user completes.
+ * Hosted-checkout-page variant of the Rs.1 trial (POST /payments/trial/start
+ * — not currently called by any app screen, which uses startTrialOrder's
+ * native in-app checkout instead, but the route is still live).
  */
-async function startRegistration(
-  uid: string,
-  method: MandateMethod,
-  amountRupees: number,
-  purpose: 'trial' | 'direct_subscription',
-): Promise<StartRegistrationResult> {
-  const user = await getUserOrThrow(uid);
-
-  // Razorpay's registration-link API takes an inline customer object (not a
-  // pre-existing customer_id) and creates/matches the Customer itself — we
-  // don't collect email anywhere in this app, so a stable synthetic one is
-  // used purely as a Razorpay-required identifier field.
-  const registration = await createRecurringRegistration(
-    await getDisplayName(user),
-    `${uid}@users.astro101.app`,
-    user.phoneNumber,
-    amountRupees,
-    method,
-    { uid, purpose },
-  );
-
-  await adminFirestore().collection('users').doc(uid).set(
-    {
-      razorpayCustomerId: registration.customerId,
-      mandateMethod: method,
-      mandateStatus: 'created',
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
-
-  await startSubscriptionCycle(uid, {
-    planId: purpose === 'trial' ? 'trial' : 'plus',
-    status: 'created',
-    mandateMethod: method,
-    razorpayCustomerId: registration.customerId,
-    registrationAmount: amountRupees,
-  });
-
-  return { registrationLinkId: registration.registrationLinkId, shortUrl: registration.shortUrl };
-}
-
 export async function startTrial(
   uid: string,
   method: MandateMethod,
 ): Promise<StartRegistrationResult> {
-  const trial = await getTrialAmount();
-  return startRegistration(uid, method, trial.amount, 'trial');
+  const subscription = await startNewMandateSubscription(uid, method, 'trial');
+  return { subscriptionId: subscription.subscriptionId, shortUrl: subscription.shortUrl };
 }
 
-/**
- * Same as startTrial, but returns a Razorpay order for the in-app native
- * Checkout SDK instead of a hosted registration-link URL. Mandate + trial
- * credits are still granted only by the webhook.
- */
-export async function startTrialOrder(
-  uid: string,
-  method: MandateMethod,
-): Promise<CreatedRecurringOrder> {
-  const user = await getUserOrThrow(uid);
-  const trial = await getTrialAmount();
-
-  const order = await createRecurringOrder(
-    await getDisplayName(user),
-    `${uid}@users.astro101.app`,
-    user.phoneNumber,
-    trial.amount,
-    method,
-    `trial_${uid}_${Date.now()}`,
-    { uid, purpose: 'trial' },
-    user.razorpayCustomerId,
-  );
-  await recordPaymentOrder(order.orderId, uid, 'trial', order.amount);
-
-  await adminFirestore().collection('users').doc(uid).set(
-    {
-      razorpayCustomerId: order.customerId,
-      mandateMethod: method,
-      mandateStatus: 'created',
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
-
-  await startSubscriptionCycle(uid, {
-    planId: 'trial',
-    status: 'created',
-    mandateMethod: method,
-    razorpayCustomerId: order.customerId,
-    registrationAmount: trial.amount,
-  });
-
-  return order;
+export async function startTrialOrder(uid: string, method: MandateMethod): Promise<NewMandateSubscription> {
+  return startNewMandateSubscription(uid, method, 'trial');
 }
 
 /**
  * Synchronous confirmation right after the in-app checkout succeeds, so the
- * app doesn't depend solely on the webhook. Verifies the checkout signature
- * and order ownership, then runs the same idempotent completion the webhook
- * uses. Returns 'pending' if Razorpay hasn't issued the mandate token yet
- * (the webhook will finish it).
+ * app doesn't depend solely on the webhook. Verifies the subscription
+ * checkout signature, fetches live status from Razorpay, and credits if
+ * already entitled; otherwise the webhook (subscription.authenticated/charged)
+ * finishes it.
  */
-/**
- * Marks a registration 'authenticated': Razorpay has captured the payment
- * but hasn't confirmed the recurring token yet — a real, distinct state from
- * "never paid" (previously invisible; both looked like plain 'created').
- * Shared by the client-verify paths below and the payment.captured webhook
- * handler, for the same reason completeMandateRegistration is shared by all
- * three: the token can show up via any of them.
- */
-export async function markAuthenticated(
-  uid: string,
-  knownSubscriptionId?: string | null,
-): Promise<void> {
-  await updateCurrentSubscription(uid, { status: 'authenticated' }, knownSubscriptionId);
-  await adminFirestore().collection('users').doc(uid).set(
-    { mandateStatus: 'authenticated', updatedAt: FieldValue.serverTimestamp() },
-    { merge: true },
-  );
-}
-
 export async function verifyTrialRegistration(
   uid: string,
-  input: VerifySignatureInput,
+  input: VerifySubscriptionSignatureInput,
 ): Promise<{ status: 'ok' | 'pending' }> {
-  verifyPaymentSignature(input);
-
-  const order = await fetchOrder(input.orderId);
-  const notes = order.notes as Record<string, string> | undefined;
-  if (notes?.uid !== uid || notes?.purpose !== 'trial') {
-    throw new ValidationError('This order does not belong to a trial for this account.');
-  }
-
-  const user = await getUserOrThrow(uid);
-  const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
-  if (!tokenId) {
-    // The webhook finishes this once token.confirmed or a later
-    // payment.captured (with token_id) arrives.
-    await markAuthenticated(uid, user.subscriptionId ?? null);
-    return { status: 'pending' };
-  }
-
-  await completeMandateRegistration(uid, tokenId, input.paymentId, 'trial', {
-    via: 'client_verify',
-    orderId: input.orderId,
-  });
-  return { status: 'ok' };
-}
-
-export interface SubscriptionOrder extends CreatedOrder {
-  // Set when this order also registers an auto-debit mandate (no active one yet).
-  customerId?: string;
+  return verifyNewMandateCheckout(uid, input);
 }
 
 /**
- * "Subscribe Rs.299" through the in-app Razorpay Checkout — the user always
- * completes a real payment; credits are only granted by verifySubscription-
- * Payment (or the webhook) after Razorpay confirms it. With an active mandate
- * this is a plain one-time order (the existing auto-debit cycle restarts once
- * paid); without one, it is a recurring-enabled order that also registers the
- * mandate at the subscription amount.
+ * "Subscribe Rs.299" through the in-app Razorpay Checkout. Throws if the
+ * user already has an active mandate (the paywall gate already hides this
+ * flow in that case; this guards the API directly too, rather than silently
+ * starting a duplicate subscription).
  */
 export async function startSubscriptionOrder(
   uid: string,
   method?: MandateMethod,
-): Promise<SubscriptionOrder> {
+): Promise<NewMandateSubscription> {
   const user = await getUserOrThrow(uid);
-  const { amount, currency } = await getSubscriptionAmount();
-  const hasActiveMandate =
-    user.mandateStatus === 'active' && !!user.razorpayCustomerId && !!user.razorpayTokenId;
 
-  if (hasActiveMandate) {
-    const plainOrder = await createOrder(amount, currency, `subscription_${uid}_${Date.now()}`, {
-      uid,
-      purpose: 'subscription',
-    });
-    await recordPaymentOrder(plainOrder.orderId, uid, 'subscription', plainOrder.amount);
-    return plainOrder;
+  if (user.mandateStatus === 'active') {
+    throw new ValidationError('You already have an active subscription.');
   }
-
   if (!method) {
     throw new ValidationError('A payment method is required to set up auto-debit.');
   }
 
-  const order = await createRecurringOrder(
-    await getDisplayName(user),
-    `${uid}@users.astro101.app`,
-    user.phoneNumber,
-    amount,
-    method,
-    `subscription_${uid}_${Date.now()}`,
-    { uid, purpose: 'direct_subscription' },
-    user.razorpayCustomerId,
-  );
-  await recordPaymentOrder(order.orderId, uid, 'direct_subscription', order.amount);
-
-  await adminFirestore().collection('users').doc(uid).set(
-    {
-      razorpayCustomerId: order.customerId,
-      mandateMethod: method,
-      mandateStatus: 'created',
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
-  await startSubscriptionCycle(uid, {
-    planId: 'plus',
-    status: 'created',
-    mandateMethod: method,
-    razorpayCustomerId: order.customerId,
-    registrationAmount: amount,
-  });
-
-  return order;
+  return startNewMandateSubscription(uid, method, 'direct_subscription');
 }
 
-/**
- * Confirms a paid subscription order (signature + ownership checked), then
- * credits the wallet — idempotent per paymentId, so a retry or the webhook
- * can't double-credit. Returns 'pending' only for the mandate-registering
- * variant when Razorpay hasn't issued the token yet (the webhook finishes it).
- */
-export async function verifySubscriptionPayment(
+/** Confirms a paid direct-to-subscription registration (no trial). */
+export async function verifyDirectSubscriptionRegistration(
   uid: string,
-  input: VerifySignatureInput,
+  input: VerifySubscriptionSignatureInput,
 ): Promise<{ status: 'ok' | 'pending' }> {
-  verifyPaymentSignature(input);
+  return verifyNewMandateCheckout(uid, input);
+}
 
-  const order = await fetchOrder(input.orderId);
-  const notes = order.notes as Record<string, string> | undefined;
-  const purpose = notes?.purpose;
-  if (notes?.uid !== uid || (purpose !== 'subscription' && purpose !== 'direct_subscription')) {
-    throw new ValidationError('This order does not belong to a subscription for this account.');
+const ENTITLED_SUBSCRIPTION_STATUSES = new Set(['authenticated', 'active', 'completed']);
+
+/**
+ * Confirms a Subscriptions-API checkout right after it succeeds client-side —
+ * the webhook (subscription.authenticated/charged) remains the source of
+ * truth/fallback. Verifies the subscription-flavored signature (different
+ * formula from an order's — see razorpay.service.ts), fetches live status
+ * from Razorpay, and credits if already entitled; otherwise leaves it to the
+ * webhook and returns 'pending'.
+ */
+async function verifyNewMandateCheckout(
+  uid: string,
+  input: VerifySubscriptionSignatureInput,
+): Promise<{ status: 'ok' | 'pending' }> {
+  verifySubscriptionPaymentSignature(input);
+
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(input.subscriptionId).get();
+  if (!cycleSnapshot.exists || cycleSnapshot.data()?.userId !== uid) {
+    throw new ValidationError('This subscription does not belong to this account.');
   }
 
-  if (purpose === 'direct_subscription') {
-    const user = await getUserOrThrow(uid);
-    const tokenId = await findMandateTokenId(input.paymentId, user.razorpayCustomerId);
-    if (!tokenId) {
-      await markAuthenticated(uid, user.subscriptionId ?? null);
-      return { status: 'pending' };
-    }
-    await completeMandateRegistration(uid, tokenId, input.paymentId, 'direct_subscription', {
-      via: 'client_verify',
-      orderId: input.orderId,
-    });
-    return { status: 'ok' };
+  const subscription = await fetchSubscription(input.subscriptionId);
+
+  if (!ENTITLED_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+    await updateNewMandateStatus(uid, input.subscriptionId, subscription.status as MandateStatus);
+    return { status: 'pending' };
   }
 
-  await applySubscriptionPayment(uid, input.paymentId, {
+  await applyNewMandateEntitlement(uid, input.subscriptionId, input.paymentId, {
     via: 'client_verify',
-    orderId: input.orderId,
   });
   return { status: 'ok' };
 }
 
-/**
- * Credits a paid one-time subscription order and restarts the 30-day cycle.
- * Idempotent per paymentId (creditWallet), so the client verify, the webhook
- * and reconciliation can all call it for the same payment.
- */
-export async function applySubscriptionPayment(
+/** Status-only sync (no crediting) — lifecycle events like activated/pending/halted/cancelled/completed. */
+export async function updateNewMandateStatus(
   uid: string,
-  paymentId: string,
-  options?: TransactionOptions,
+  subscriptionId: string,
+  status: MandateStatus,
 ): Promise<void> {
-  const { amount } = await getSubscriptionAmount();
-  const rupeesPerCredit = await getRupeesPerCredit();
-  const result = await creditWallet(uid, amount, paymentId, 1 / rupeesPerCredit, 'subscription');
-
-  if (!result.alreadyProcessed) {
-    const nextAutoDebitAt = Timestamp.fromMillis(Date.now() + MONTH_MS);
-    await adminFirestore().collection('users').doc(uid).set(
-      {
-        nextAutoDebitAt,
-        nextAutoDebitAmount: amount,
-        graceUntil: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    await updateCurrentSubscription(uid, {
-      planId: 'plus',
-      status: 'active',
-      lastPaymentId: paymentId,
-      lastPaymentAmount: amount,
-      lastPaymentAt: Timestamp.now(),
-      currentPeriodStart: Timestamp.now(),
-      nextAutoDebitAt,
-      nextAutoDebitAmount: amount,
-    });
-  }
-
-  if (options) {
-    await recordTransaction({
-      uid,
-      paymentId,
-      orderId: options.orderId,
-      purpose: 'subscription',
-      status: 'paid',
-      amountRupees: amount,
-      creditsAwarded: result.creditsAwarded,
-      paymentMethod: options.paymentMethod,
-      via: options.via,
-    });
-  }
+  await updateCurrentSubscription(uid, { status }, subscriptionId);
+  await adminFirestore().collection('users').doc(uid).set(
+    { mandateStatus: status, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
 }
 
 /**
- * Called from the webhook once Razorpay confirms the registration payment +
- * token. Idempotent: keyed by a `registration_${paymentId}` ledger doc — a
- * *different* doc id from the one creditWallet() uses for the same
- * paymentId below, since otherwise creditWallet would see this function's
- * own ledger write and treat the credit as already processed, silently
- * skipping it. A redelivered webhook is still a no-op on both sides (the
- * trial-credit grant has its own separate idempotency guard, see
- * grantTrialCreditsOnce; creditWallet has its own, keyed by paymentId).
+ * Credits the wallet the FIRST time a mandate becomes entitled — the
+ * trial's addon charge, or a direct subscription's first charge. Idempotent
+ * per paymentId (creditWallet for direct; grantTrialCreditsOnce's own
+ * per-user ledger for trial), so the client verify, the webhook, and a live
+ * status poll can all call this safely for the same event. Renewals
+ * (subscription.charged on an already-active cycle) go through
+ * applyNewMandateRenewal instead — this function always sets status 'active'.
  */
-export async function completeMandateRegistration(
+export async function applyNewMandateEntitlement(
   uid: string,
-  tokenId: string,
+  subscriptionId: string,
   paymentId: string,
-  purpose: 'trial' | 'direct_subscription',
-  options?: TransactionOptions,
-): Promise<void> {
-  const db = adminFirestore();
-  const userRef = db.collection('users').doc(uid);
-  const ledgerRef = db.collection('payments').doc(`registration_${paymentId}`);
-
-  const alreadyProcessed = await db.runTransaction(async (transaction) => {
-    const ledgerSnapshot = await transaction.get(ledgerRef);
-    if (ledgerSnapshot.exists) return true;
-
-    const subscriptionAmount = await getSubscriptionAmount();
-    const nextAutoDebitAt =
-      purpose === 'trial'
-        ? Timestamp.fromMillis(Date.now() + DAY_MS)
-        : Timestamp.fromMillis(Date.now() + MONTH_MS);
-
-    transaction.update(userRef, {
-      razorpayTokenId: tokenId,
-      mandateStatus: 'active',
-      nextAutoDebitAt,
-      nextAutoDebitAmount: subscriptionAmount.amount,
-      graceUntil: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    transaction.set(ledgerRef, {
-      userId: uid,
-      purpose,
-      razorpayPaymentId: paymentId,
-      // -> transactions/{id}; the synthetic token_ id never becomes a transaction.
-      transactionId: paymentId.startsWith('token_') ? null : paymentId,
-      status: 'paid',
-      createdAt: FieldValue.serverTimestamp(),
-    });
-    return false;
-  });
-
-  // The token.confirmed webhook passes a synthetic `token_<id>` as paymentId —
-  // not a real Razorpay payment, so it never becomes a transaction.
-  const recordable = options && !paymentId.startsWith('token_') ? options : undefined;
-
-  if (alreadyProcessed) {
-    // Still note this channel on the existing transaction (confirmedVia).
-    if (recordable) {
-      await recordRegistrationTransaction(uid, paymentId, purpose, recordable, undefined);
-    }
-    return;
-  }
-
-  const subscriptionAmount = await getSubscriptionAmount();
-  // This registration was kicked off by startSubscriptionCycle (via
-  // startRegistration/startTrialOrder/startSubscriptionOrder), which already
-  // pointed users/{uid}.subscriptionId at the cycle doc — updateCurrentSubscription
-  // completes that same doc rather than starting a new one.
-  await updateCurrentSubscription(uid, {
-    // planId already distinguishes trial from paid — see the MandateStatus
-    // doc comment in types/index.ts for why 'active' covers both rather than
-    // a separate 'trialing' status.
-    planId: purpose === 'trial' ? 'trial' : 'plus',
-    status: 'active',
-    razorpayTokenId: tokenId,
-    lastPaymentId: paymentId,
-    currentPeriodStart: Timestamp.now(),
-    nextAutoDebitAt: Timestamp.fromMillis(
-      Date.now() + (purpose === 'trial' ? DAY_MS : MONTH_MS),
-    ),
-    nextAutoDebitAmount: subscriptionAmount.amount,
-  });
-
-  if (purpose === 'trial') {
-    await grantTrialCreditsOnce(uid);
-    if (recordable) {
-      await recordRegistrationTransaction(uid, paymentId, purpose, recordable, 5);
-    }
-  } else {
-    // Direct-to-subscription registration (no trial) — the registration
-    // payment itself was the subscription-amount charge, so credit it now.
-    // Keyed by the plain paymentId (creditWallet's own convention), distinct
-    // from the registration_ ledger doc written above.
-    const rupeesPerCredit = await getRupeesPerCredit();
-    const credited = await creditWallet(
-      uid,
-      subscriptionAmount.amount,
-      paymentId,
-      1 / rupeesPerCredit,
-      'subscription',
-    );
-    if (recordable) {
-      await recordRegistrationTransaction(
-        uid,
-        paymentId,
-        purpose,
-        recordable,
-        credited.creditsAwarded,
-      );
-    }
-  }
-}
-
-async function recordRegistrationTransaction(
-  uid: string,
-  paymentId: string,
-  purpose: 'trial' | 'direct_subscription',
   options: TransactionOptions,
-  creditsAwarded: number | undefined,
 ): Promise<void> {
-  const amount =
-    purpose === 'trial' ? (await getTrialAmount()).amount : (await getSubscriptionAmount()).amount;
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
+  const cycle = cycleSnapshot.data() as SubscriptionCycleRecord | undefined;
+  const isTrial = cycle?.planId === 'trial';
+
+  let creditsAwarded: number | undefined;
+  if (isTrial) {
+    await grantTrialCreditsOnce(uid);
+    creditsAwarded = 5;
+  } else {
+    const subscriptionAmount = await getSubscriptionAmount();
+    const rupeesPerCredit = await getRupeesPerCredit();
+    const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+    creditsAwarded = result.creditsAwarded;
+  }
+
+  await updateCurrentSubscription(
+    uid,
+    { status: 'active', lastPaymentId: paymentId, currentPeriodStart: Timestamp.now() },
+    subscriptionId,
+  );
+  await adminFirestore().collection('users').doc(uid).set(
+    { mandateStatus: 'active', updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+
+  const amountRupees = isTrial ? (await getTrialAmount()).amount : (await getSubscriptionAmount()).amount;
   await recordTransaction({
     uid,
     paymentId,
-    orderId: options.orderId,
-    purpose,
+    purpose: isTrial ? 'trial' : 'direct_subscription',
     status: 'paid',
-    amountRupees: amount,
+    amountRupees,
     creditsAwarded,
     paymentMethod: options.paymentMethod,
     via: options.via,
   });
 }
 
-export interface UpgradeNowResult {
-  status: 'charged' | 'registration_required';
-  creditsAwarded?: number;
-  newBalance?: number;
-  registrationLinkId?: string;
-  shortUrl?: string;
-  // Set when Razorpay charged the user successfully but crediting their
-  // wallet then failed (see finalizeAutoDebitCharge) — the app must NOT
-  // treat this as a failed payment (retrying would charge the user again);
-  // it's queued for manual reconciliation instead.
-  creditingPending?: boolean;
-}
-
-interface FinalizedCharge {
-  creditsAwarded: number;
-  newBalance: number;
-  bookkeepingFailed: boolean;
-}
-
 /**
- * Runs after chargeRecurringToken has ALREADY succeeded — Razorpay has taken
- * the money by the time this is called. Advances the auto-debit schedule
- * FIRST, before any bookkeeping that could fail, so a crash here can never
- * cause processDueAutoDebits to charge this user a second time for the same
- * cycle. Credits/records/updates the subscription cycle as one best-effort
- * unit; if any of that throws, the failure is durably recorded to
- * failedCredits/{paymentId} for manual reconciliation instead of being
- * silently lost or — worse — mistaken for a failed charge (which would
- * wrongly open a grace period against a user who already paid). Safe to
- * re-run by hand later: creditWallet/recordTransaction are both idempotent
- * per paymentId.
+ * Credits a renewal charge on an already-entitled mandate —
+ * subscription.charged with paid_count > 1 (or the first non-trial charge,
+ * which applyNewMandateEntitlement already handles — recordTransaction's own
+ * idempotency-by-paymentId means calling this for that same payment too,
+ * from the webhook, is harmless). Idempotent per paymentId via creditWallet.
  */
-async function finalizeAutoDebitCharge(
-  uid: string,
-  user: UserProfileRecord,
-  paymentId: string,
-  orderId: string,
-  amountRupees: number,
-): Promise<FinalizedCharge> {
-  const nextAutoDebitAmount = (await getSubscriptionAmount()).amount;
-  const nextAutoDebitAt = Timestamp.fromMillis(Date.now() + MONTH_MS);
-
-  await adminFirestore().collection('users').doc(uid).set(
-    {
-      nextAutoDebitAt,
-      nextAutoDebitAmount,
-      graceUntil: FieldValue.delete(),
-      lastPaymentFailureReason: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
-
-  try {
-    const rupeesPerCredit = await getRupeesPerCredit();
-    const credited = await creditWallet(uid, amountRupees, paymentId, 1 / rupeesPerCredit, 'subscription');
-    await recordTransaction({
-      uid,
-      paymentId,
-      orderId,
-      purpose: 'autodebit',
-      status: 'paid',
-      amountRupees,
-      creditsAwarded: credited.creditsAwarded,
-      paymentMethod: user.mandateMethod,
-      via: 'auto_debit',
-    });
-    await updateCurrentSubscription(
-      uid,
-      {
-        planId: 'plus',
-        status: 'active',
-        lastPaymentId: paymentId,
-        lastPaymentAmount: amountRupees,
-        lastPaymentAt: Timestamp.now(),
-        currentPeriodStart: Timestamp.now(),
-        nextAutoDebitAt,
-        nextAutoDebitAmount,
-      },
-      user.subscriptionId ?? null,
-    );
-    return { creditsAwarded: credited.creditsAwarded, newBalance: credited.newBalance, bookkeepingFailed: false };
-  } catch (error) {
-    console.error(
-      `[mandate] CRITICAL: charged ${uid} Rs.${amountRupees} (payment ${paymentId}) but crediting failed — needs manual reconciliation`,
-      error,
-    );
-    await adminFirestore()
-      .collection('failedCredits')
-      .doc(paymentId)
-      .set(
-        {
-          userId: uid,
-          paymentId,
-          orderId,
-          purpose: 'autodebit',
-          amountRupees,
-          reason: error instanceof Error ? error.message : 'Unknown error crediting after charge.',
-          resolved: false,
-          createdAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      )
-      .catch((writeError) => {
-        console.error(`[mandate] Also failed to record failedCredits/${paymentId}`, writeError);
-      });
-    return { creditsAwarded: 0, newBalance: (await getRemainingCredits(uid)) ?? 0, bookkeepingFailed: true };
-  }
-}
-
-/**
- * "Subscribe Rs.299 now" — whether tapped early (before the scheduled day-2
- * auto-debit) or with no mandate at all yet. If a mandate is already active,
- * cancels the pending schedule by charging immediately and restarting the
- * 30-day cycle from today. If there's no mandate, this instead starts
- * registration at the subscription amount directly (trial skipped).
- */
-export async function upgradeNow(uid: string, method?: MandateMethod): Promise<UpgradeNowResult> {
-  const user = await getUserOrThrow(uid);
+export async function applyNewMandateRenewal(uid: string, subscriptionId: string, paymentId: string): Promise<void> {
   const subscriptionAmount = await getSubscriptionAmount();
+  const rupeesPerCredit = await getRupeesPerCredit();
+  const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
 
-  if (user.mandateStatus !== 'active' || !user.razorpayCustomerId || !user.razorpayTokenId) {
-    if (!method) {
-      throw new ValidationError('A payment method is required to set up auto-debit.');
-    }
-    const registration = await startRegistration(
-      uid,
-      method,
-      subscriptionAmount.amount,
-      'direct_subscription',
-    );
-    return { status: 'registration_required', ...registration };
-  }
-
-  // From here, chargeRecurringToken either throws (a genuine charge failure —
-  // propagates as before, nothing charged) or succeeds (Razorpay has taken
-  // the money). Everything after a successful charge is handled by
-  // finalizeAutoDebitCharge, which can never turn a bookkeeping hiccup into
-  // a second real charge or a wrongly-opened grace period.
-  const { paymentId, orderId } = await chargeRecurringToken(
-    user.razorpayCustomerId,
-    user.razorpayTokenId,
-    subscriptionAmount.amount,
-    `upgrade_${uid}_${Date.now()}`,
-    user.phoneNumber,
-    { uid, purpose: 'autodebit' },
-  );
-
-  const result = await finalizeAutoDebitCharge(uid, user, paymentId, orderId, subscriptionAmount.amount);
-
-  return {
-    status: 'charged',
-    creditsAwarded: result.creditsAwarded,
-    newBalance: result.newBalance,
-    creditingPending: result.bookkeepingFailed || undefined,
-  };
-}
-
-/**
- * Called by the scheduled job (functions/src/scheduled/processAutoDebits.ts).
- * Finds every user whose next auto-debit is due, charges their saved
- * mandate, credits the result, and advances the schedule — or, on failure,
- * starts a 3-day grace period without touching already-granted credits.
- */
-export async function processDueAutoDebits(): Promise<{ charged: number; failed: number }> {
-  const db = adminFirestore();
-  const now = Timestamp.now();
-
-  const dueSnapshot = await db
-    .collection('users')
-    .where('mandateStatus', '==', 'active')
-    .where('nextAutoDebitAt', '<=', now)
-    .get();
-
-  let charged = 0;
-  let failed = 0;
-
-  for (const doc of dueSnapshot.docs) {
-    const uid = doc.id;
-    const user = doc.data() as UserProfileRecord;
-
-    if (!user.razorpayCustomerId || !user.razorpayTokenId) {
-      failed += 1;
-      continue;
-    }
-
-    const amount = user.nextAutoDebitAmount ?? (await getSubscriptionAmount()).amount;
-
-    // Only a failure of the charge itself (declined, etc.) belongs in this
-    // try/catch — it's the only case that should ever open a grace period.
-    // Once chargeRecurringToken returns, Razorpay has already taken the
-    // money; everything after that is finalizeAutoDebitCharge's job, and its
-    // own failures must never be treated as a failed charge (see its doc
-    // comment) or this catch block would wrongly grace-period a user who
-    // already paid, and leave nextAutoDebitAt unmoved — risking a real
-    // second charge on the next hourly run.
-    let charge: { paymentId: string; orderId: string };
-    try {
-      charge = await chargeRecurringToken(
-        user.razorpayCustomerId,
-        user.razorpayTokenId,
-        amount,
-        `autodebit_${uid}_${Date.now()}`,
-        user.phoneNumber,
-        { uid, purpose: 'autodebit' },
-      );
-    } catch (error) {
-      failed += 1;
-      await updateCurrentSubscription(
-        uid,
-        {
-          status: 'past_due',
-          lastPaymentFailureReason: error instanceof Error ? error.message : 'Charge failed.',
-        },
-        user.subscriptionId ?? null,
-      ).catch(() => undefined);
-      await doc.ref.set(
-        {
-          graceUntil: Timestamp.fromMillis(Date.now() + GRACE_PERIOD_MS),
-          lastPaymentFailureReason: error instanceof Error ? error.message : 'Charge failed.',
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-      continue;
-    }
-
-    const result = await finalizeAutoDebitCharge(uid, user, charge.paymentId, charge.orderId, amount);
-    if (result.bookkeepingFailed) {
-      failed += 1;
-    } else {
-      charged += 1;
-    }
-  }
-
-  return { charged, failed };
-}
-
-/**
- * Asks Razorpay directly whether the user's saved mandate token is still
- * chargeable, and self-corrects local state if it isn't — rather than
- * relying solely on the next scheduled auto-debit attempt to fail and
- * discover that reactively. Called from reconcile.service.ts's
- * reconcilePayments, which the app already invokes on every foreground.
- * A no-op (and cheap) for any user not currently 'active'/'past_due', or
- * with no token to check yet.
- */
-export async function reconcileMandateStatus(uid: string): Promise<MandateStatus> {
-  const user = await getUserOrThrow(uid);
-  const current = user.mandateStatus ?? 'none';
-
-  if (
-    (current !== 'active' && current !== 'past_due') ||
-    !user.razorpayCustomerId ||
-    !user.razorpayTokenId
-  ) {
-    return current;
-  }
-
-  const tokenStatus = await fetchMandateTokenStatus(user.razorpayCustomerId, user.razorpayTokenId);
-  // A failed/unavailable check is not evidence of anything — never downgrade
-  // a user's access because Razorpay's API was briefly unreachable.
-  if (!tokenStatus || tokenStatus.isLive) return current;
-
-  await adminFirestore().collection('users').doc(uid).set(
-    {
-      mandateStatus: 'cancelled',
-      lastPaymentFailureReason: tokenStatus.failureReason ?? 'Mandate no longer active at Razorpay.',
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
   await updateCurrentSubscription(
     uid,
     {
-      status: 'cancelled',
-      lastPaymentFailureReason: tokenStatus.failureReason ?? 'Mandate no longer active at Razorpay.',
+      planId: 'plus',
+      status: 'active',
+      lastPaymentId: paymentId,
+      lastPaymentAmount: subscriptionAmount.amount,
+      lastPaymentAt: Timestamp.now(),
+      currentPeriodStart: Timestamp.now(),
     },
-    user.subscriptionId ?? null,
+    subscriptionId,
   );
-
-  return 'cancelled';
+  await recordTransaction({
+    uid,
+    paymentId,
+    purpose: 'subscription',
+    status: 'paid',
+    amountRupees: subscriptionAmount.amount,
+    creditsAwarded: result.creditsAwarded,
+    via: 'webhook',
+  });
 }
 
 /**
- * Downgrades any user whose grace period has elapsed without a successful
- * retry — stops future recurring, never claws back credits already granted.
+ * Live-checks a mandate directly against Razorpay and syncs local state —
+ * self-healing counterpart to the webhook, for when it's missed. Credits the
+ * entitlement if Razorpay reports it captured but local state hasn't caught
+ * up. Safe to call repeatedly.
  */
-export async function downgradeExpiredGracePeriods(): Promise<number> {
-  const db = adminFirestore();
-  const now = Timestamp.now();
+export async function checkNewMandateStatus(uid: string, subscriptionId: string): Promise<MandateStatus> {
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
+  if (!cycleSnapshot.exists || cycleSnapshot.data()?.userId !== uid) {
+    throw new ValidationError('This subscription does not belong to this account.');
+  }
+  const cycle = cycleSnapshot.data() as SubscriptionCycleRecord;
 
-  const snapshot = await db
-    .collection('users')
-    .where('mandateStatus', '==', 'active')
-    .where('graceUntil', '<=', now)
-    .get();
+  const subscription = await fetchSubscription(subscriptionId);
+  const entitled = ENTITLED_SUBSCRIPTION_STATUSES.has(subscription.status);
+  const alreadyEntitled = cycle.status === 'active' || cycle.status === 'completed';
 
-  await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const user = doc.data() as UserProfileRecord;
-      await doc.ref.set(
-        { mandateStatus: 'cancelled', updatedAt: FieldValue.serverTimestamp() },
-        { merge: true },
-      );
-      await updateCurrentSubscription(doc.id, { status: 'cancelled' }, user.subscriptionId ?? null);
-    }),
-  );
+  if (entitled && !alreadyEntitled) {
+    // fetchSubscription doesn't surface the individual payment id — a
+    // synthetic, deterministic id is fine here since this transition (not
+    // yet entitled -> entitled) only happens once per cycle, and
+    // creditWallet's idempotency is keyed on whatever id is passed.
+    await applyNewMandateEntitlement(uid, subscriptionId, `sub_poll_${subscriptionId}`, {
+      via: 'reconciliation',
+    });
+    return 'active';
+  }
 
-  return snapshot.size;
+  await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus);
+  return subscription.status as MandateStatus;
+}
+
+/** Cancels a mandate — `cancelAtCycleEnd` keeps access live until the current period ends. */
+export async function cancelNewMandateSubscription(
+  uid: string,
+  subscriptionId: string,
+  cancelAtCycleEnd: boolean,
+): Promise<void> {
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
+  if (!cycleSnapshot.exists || cycleSnapshot.data()?.userId !== uid) {
+    throw new ValidationError('This subscription does not belong to this account.');
+  }
+
+  const cancelled = await cancelRazorpaySubscription(subscriptionId, cancelAtCycleEnd);
+  await updateNewMandateStatus(uid, subscriptionId, cancelled.status as MandateStatus);
 }

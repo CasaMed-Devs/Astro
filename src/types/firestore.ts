@@ -10,7 +10,9 @@ export type MandateStatus =
   | 'created'
   | 'authenticated'
   | 'active'
-  | 'past_due'
+  | 'pending'
+  | 'halted'
+  | 'completed'
   | 'cancelled'
   | 'expired';
 
@@ -64,10 +66,8 @@ export interface MandateDoc {
   mandateStatus: MandateStatus;
   mandateMethod: MandateMethod | null;
   trialCreditsClaimed: boolean;
-  nextAutoDebitAt?: string;
-  nextAutoDebitAmount: number | null;
-  graceUntil?: string;
-  lastPaymentFailureReason: string | null;
+  // Needed to call GET /payments/subscription/status and POST /payments/subscription/cancel.
+  subscriptionId: string | null;
 }
 
 export type PaymentPurpose = 'trial' | 'autodebit' | 'direct_subscription' | 'report' | 'topup';

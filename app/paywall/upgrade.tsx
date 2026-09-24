@@ -11,7 +11,7 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
-  openRazorpayCheckout,
+  openRazorpaySubscriptionCheckout,
   startSubscriptionOrder,
   verifySubscriptionPayment,
 } from '@/services/payment.service';
@@ -97,13 +97,12 @@ export default function UpgradeScreen() {
     setProcessing(true);
     setError(null);
     try {
-      const order = await startSubscriptionOrder(REGISTRATION_METHOD);
-      const result = await openRazorpayCheckout(order, {
+      const subscription = await startSubscriptionOrder(REGISTRATION_METHOD);
+      const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Astro101 Plus subscription',
         contact: session?.phoneNumber ?? undefined,
-        customerId: order.customerId,
-        method: order.customerId ? REGISTRATION_METHOD : undefined,
+        method: REGISTRATION_METHOD,
       });
       const verification = await verifySubscriptionPayment(result).catch(() => ({
         status: 'pending' as const,

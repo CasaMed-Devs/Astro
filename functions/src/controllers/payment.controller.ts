@@ -18,11 +18,12 @@ import {
 } from '../services/razorpay.service';
 import { creditWallet } from '../services/credits.service';
 import {
+  cancelNewMandateSubscription,
+  checkNewMandateStatus,
   startTrial,
   startSubscriptionOrder,
   startTrialOrder,
-  upgradeNow,
-  verifySubscriptionPayment,
+  verifyDirectSubscriptionRegistration,
   verifyTrialRegistration,
 } from '../services/mandate.service';
 import { recordPaymentOrder } from '../services/paymentOrders.service';
@@ -36,15 +37,23 @@ const verifySchema = z.object({
   signature: z.string().min(1),
 });
 
+// Razorpay Checkout returns razorpay_subscription_id (not razorpay_order_id)
+// when it was opened with a subscription_id — see razorpay.service.ts's
+// verifySubscriptionPaymentSignature for why this needs a different schema
+// (and signature formula) than verifySchema above.
+const verifySubscriptionSchema = z.object({
+  subscriptionId: z.string().min(1),
+  paymentId: z.string().min(1),
+  signature: z.string().min(1),
+});
+
 const mandateMethodSchema = z.enum(['card', 'upi']);
 
 const startTrialSchema = z.object({
   method: mandateMethodSchema,
 });
 
-const upgradeNowSchema = z.object({
-  // Only needed when no mandate exists yet (registration path); ignored
-  // when an active mandate is charged directly.
+const startSubscriptionSchema = z.object({
   method: mandateMethodSchema.optional(),
 });
 
@@ -83,36 +92,52 @@ export async function startTrialOrderHandler(req: Request, res: Response): Promi
 export async function startSubscriptionOrderHandler(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const { method } = upgradeNowSchema.parse(req.body);
+  const { method } = startSubscriptionSchema.parse(req.body);
   res.json(await startSubscriptionOrder(req.uid, method));
 }
 
 export async function verifySubscriptionPaymentHandler(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const input = verifySchema.parse(req.body);
-  res.json(await verifySubscriptionPayment(req.uid, input));
+  const input = verifySubscriptionSchema.parse(req.body);
+  res.json(await verifyDirectSubscriptionRegistration(req.uid, input));
 }
 
 /** Confirms the Rs.1 trial right after checkout (the webhook remains the fallback). */
 export async function verifyTrialPaymentHandler(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const input = verifySchema.parse(req.body);
+  const input = verifySubscriptionSchema.parse(req.body);
   res.json(await verifyTrialRegistration(req.uid, input));
 }
 
+const subscriptionIdParamSchema = z.object({ subscriptionId: z.string().min(1) });
+const cancelSubscriptionSchema = z.object({
+  subscriptionId: z.string().min(1),
+  cancelAtCycleEnd: z.boolean().optional().default(true),
+});
+
 /**
- * "Subscribe Rs.299 now" — charges the existing mandate immediately and
- * restarts the 30-day cycle, or starts a direct (trial-skipping) mandate
- * registration if none exists yet.
+ * Live-checks a Subscriptions-API mandate directly against Razorpay and
+ * syncs/credits local state — self-healing counterpart to the webhook, for
+ * the app to call on foreground/dashboard load (mirrors reconcilePayments's
+ * role for the legacy engine's order-based flows).
  */
-export async function upgradeNowHandler(req: Request, res: Response): Promise<void> {
+export async function checkSubscriptionStatusHandler(req: Request, res: Response): Promise<void> {
   if (!req.uid) throw new UnauthorizedError();
 
-  const { method } = upgradeNowSchema.parse(req.body);
-  const result = await upgradeNow(req.uid, method);
-  res.json(result);
+  const { subscriptionId } = subscriptionIdParamSchema.parse(req.query);
+  const status = await checkNewMandateStatus(req.uid, subscriptionId);
+  res.json({ mandateStatus: status });
+}
+
+/** Cancels a Subscriptions-API mandate — defaults to keeping access until the current period ends. */
+export async function cancelSubscriptionHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const { subscriptionId, cancelAtCycleEnd } = cancelSubscriptionSchema.parse(req.body);
+  await cancelNewMandateSubscription(req.uid, subscriptionId, cancelAtCycleEnd);
+  res.json({ status: 'ok' });
 }
 
 export async function createTopUpOrder(req: Request, res: Response): Promise<void> {

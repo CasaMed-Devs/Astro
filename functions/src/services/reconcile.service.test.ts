@@ -109,7 +109,6 @@ jest.mock('../config/plans', () => ({
 
 jest.mock('./razorpay.service', () => ({
   fetchOrderPayments: jest.fn(),
-  findMandateTokenId: jest.fn(),
   paiseToRupees: (paise: number) => paise / 100,
 }));
 
@@ -117,13 +116,17 @@ jest.mock('../controllers/payment.controller', () => ({ recordKundaliPayment: je
 
 jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async () => undefined) }));
 
+jest.mock('./mandate.service', () => ({ checkNewMandateStatus: jest.fn() }));
+
 import { adminFirestore } from '../config/firebase-admin';
+import { checkNewMandateStatus } from './mandate.service';
 import { fetchOrderPayments } from './razorpay.service';
 import { reconcilePayments } from './reconcile.service';
 import { recordTransaction } from './transactions.service';
 
 const mockAdminFirestore = adminFirestore as unknown as jest.Mock;
 const mockFetchOrderPayments = fetchOrderPayments as unknown as jest.Mock;
+const mockCheckNewMandateStatus = checkNewMandateStatus as unknown as jest.Mock;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -232,25 +235,16 @@ describe('reconcilePayments', () => {
     expect(mockFetchOrderPayments).not.toHaveBeenCalled();
   });
 
-  it('completes a trial mandate registration and grants the trial credits once', async () => {
-    const { db, store } = makeFakeFirestore({
-      users: { u1: { credits: 0, razorpayCustomerId: 'cust_1', mandateStatus: 'pending' } },
-      paymentOrders: { order_t: order('trial') },
+  it('live-checks the mandate against Razorpay when the user has a subscription cycle', async () => {
+    const { db } = makeFakeFirestore({
+      users: { u1: { credits: 0, subscriptionId: 'sub_1' } },
     });
     mockAdminFirestore.mockReturnValue(db);
-    mockFetchOrderPayments.mockResolvedValue([
-      { id: 'pay_t', status: 'captured', amount: 100, token_id: 'token_1' },
-    ]);
+    mockCheckNewMandateStatus.mockResolvedValue('active');
 
     const result = await reconcilePayments('u1');
 
-    expect(result.resolved).toEqual([{ purpose: 'trial', orderId: 'order_t' }]);
-    expect(store.users.u1).toMatchObject({
-      mandateStatus: 'active',
-      razorpayTokenId: 'token_1',
-      trialCreditsClaimed: true,
-      credits: 5,
-    });
-    expect(store.payments.registration_pay_t).toBeDefined();
+    expect(mockCheckNewMandateStatus).toHaveBeenCalledWith('u1', 'sub_1');
+    expect(result.mandateStatus).toBe('active');
   });
 });

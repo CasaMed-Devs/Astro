@@ -93,6 +93,7 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
         const existing = txSnapshot.data() as {
           status?: string;
           confirmedVia?: string[];
+          creditsAwarded?: number;
         };
         const confirmedVia = existing.confirmedVia ?? [];
         const patch: Record<string, unknown> = {};
@@ -106,6 +107,19 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
           patch.amount = input.amountRupees;
           patch.creditsAwarded = input.creditsAwarded ?? 0;
           patch.failureReason = null;
+        } else if (!(existing.creditsAwarded ?? 0) && input.creditsAwarded) {
+          // Two channels can both confirm the same registration payment
+          // concurrently (e.g. reconciliation and client_verify racing on
+          // completeMandateRegistration's own idempotency check) — the
+          // channel that loses that race still calls this with the real
+          // creditsAwarded, but may reach Firestore FIRST, creating the doc
+          // with 0/unknown before the winning channel's call arrives. Confirmed
+          // live: a user's wallet was correctly credited but their
+          // transaction record permanently showed creditsAwarded: 0. Once a
+          // later call reports a real, positive value, trust it over an
+          // existing 0 — never the reverse (a positive value is never
+          // downgraded back to 0 by a later call).
+          patch.creditsAwarded = input.creditsAwarded;
         }
         if (Object.keys(patch).length > 0) {
           transaction.update(txRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
