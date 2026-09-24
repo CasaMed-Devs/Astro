@@ -80,11 +80,19 @@ export default function EditProfileScreen() {
         SAVE_TIMEOUT_MS,
         'Saving is taking too long. Check your connection and try again.',
       );
-      await refreshProfile().catch(() => {});
+      // Navigate away BEFORE refreshing the profile: refreshing while this
+      // screen is still mounted re-renders it at the same moment
+      // router.back() starts tearing down the native view tree — two
+      // competing updates racing over the same views, which crashes on
+      // Android's Fabric renderer ("child already has a parent"). See the
+      // same pattern in app/(onboarding)/birth-details.tsx.
       router.back();
+      refreshProfile().catch(() => {});
+      // No setSubmitting(false) on the success path on purpose: this screen
+      // is navigating away and about to unmount, so a state update here
+      // would land on it mid-transition — the real cause of the crash above.
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Could not save your details.');
-    } finally {
       setSubmitting(false);
     }
   };
