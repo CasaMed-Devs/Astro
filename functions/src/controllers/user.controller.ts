@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { createUserProfile, getUserProfile, updateUserProfile } from '../services/userProfile.service';
+import { generateAndStoreReport, isKundaliUnlocked, markReportPending } from '../services/report.service';
 import { NotFoundError, UnauthorizedError } from '../utils/errors';
 import type { Gender, UserProfileDetailsRecord, UserProfileRecord } from '../types';
 
@@ -96,6 +97,14 @@ export async function updateBirthDetails(req: Request, res: Response): Promise<v
   const user = userSnapshot.data() as UserProfileRecord;
   const userProfileId = await ensureUserProfileId(req.uid, user);
   await updateUserProfile(userProfileId, details);
+
+  // Any kundali already generated was calculated from the old date/time/
+  // place, so it's now stale — regenerate it in the background rather than
+  // leaving the user looking at a chart that no longer matches their profile.
+  if (await isKundaliUnlocked(req.uid)) {
+    await markReportPending(req.uid);
+    generateAndStoreReport(req.uid).catch(console.error);
+  }
 
   const [freshUserSnapshot, profile] = await Promise.all([userRef.get(), getUserProfile(userProfileId)]);
   res.json(serializeProfile(req.uid, freshUserSnapshot.data() as UserProfileRecord, profile));

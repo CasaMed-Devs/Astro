@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { ArrowLeft, MapPin, Calendar, Clock, RefreshCw } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
@@ -160,22 +160,28 @@ export default function ReportScreen() {
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (!session) return;
-    // Stop polling once the report reaches a terminal state — otherwise
-    // this keeps re-fetching (and re-rendering the whole screen, including
-    // the SVG chart) every few seconds forever, which is wasteful and can
-    // trigger native view-tree crashes in react-native-svg under repeated
-    // re-renders.
-    let unsubscribe: (() => void) | undefined;
-    unsubscribe = subscribeToReport((next) => {
-      setReport(next);
-      if (next && (next.status === 'ready' || next.status === 'failed')) {
-        unsubscribe?.();
-      }
-    });
-    return () => unsubscribe?.();
-  }, [session]);
+  // Re-subscribes every time this screen gains focus (not just on mount) so
+  // that returning here after editing birth details in app/profile/edit.tsx
+  // picks up the backend's freshly-regenerated report instead of showing
+  // whatever stale "ready" snapshot was cached from before the edit.
+  useFocusEffect(
+    useCallback(() => {
+      if (!session) return;
+      // Stop polling once the report reaches a terminal state — otherwise
+      // this keeps re-fetching (and re-rendering the whole screen, including
+      // the SVG chart) every few seconds forever, which is wasteful and can
+      // trigger native view-tree crashes in react-native-svg under repeated
+      // re-renders.
+      let unsubscribe: (() => void) | undefined;
+      unsubscribe = subscribeToReport((next) => {
+        setReport(next);
+        if (next && (next.status === 'ready' || next.status === 'failed')) {
+          unsubscribe?.();
+        }
+      });
+      return () => unsubscribe?.();
+    }, [session]),
+  );
 
   useEffect(() => {
     if (report === null && !error) {
