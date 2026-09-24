@@ -9,6 +9,7 @@ import { AuthProvider } from '@/features/auth/context/AuthProvider';
 import { PaywallGate } from '@/features/paywall/PaywallGate';
 import { SplashView } from '@/components/states/SplashView';
 import { useAppFonts } from '@/hooks/useAppFonts';
+import { MetaEvents } from '@/services/analytics';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -20,6 +21,10 @@ const queryClient = new QueryClient({
 
 export default function RootLayout() {
   const fontsLoaded = useAppFonts();
+
+  useEffect(() => {
+    MetaEvents.init();
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded) {

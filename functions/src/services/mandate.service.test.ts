@@ -125,8 +125,8 @@ describe('applyNewMandateEntitlement', () => {
     (adminFirestore as jest.Mock).mockReturnValue(db);
     const { applyNewMandateEntitlement } = await import('./mandate.service');
 
-    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', { via: 'webhook' });
-    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', { via: 'client_verify' }); // redelivered
+    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', 'authenticated', { via: 'webhook' });
+    await applyNewMandateEntitlement('uid1', 'sub_1', 'pay_1', 'authenticated', { via: 'client_verify' }); // redelivered
 
     expect(store.users.uid1.credits).toBe(5); // +5 once, not +10
     expect(store.users.uid1.trialCreditsClaimed).toBe(true);
@@ -143,7 +143,7 @@ describe('applyNewMandateEntitlement', () => {
     (adminFirestore as jest.Mock).mockReturnValue(db);
     const { applyNewMandateEntitlement } = await import('./mandate.service');
 
-    await applyNewMandateEntitlement('uid1', 'sub_2', 'pay_2', { via: 'webhook' });
+    await applyNewMandateEntitlement('uid1', 'sub_2', 'pay_2', 'authenticated', { via: 'webhook' });
 
     expect(store.users.uid1.credits).toBe(299); // Rs.299 at rupeesPerCredit=1
     expect(store.users.uid1.mandateStatus).toBe('active');
@@ -160,8 +160,8 @@ describe('applyNewMandateRenewal', () => {
     (adminFirestore as jest.Mock).mockReturnValue(db);
     const { applyNewMandateRenewal } = await import('./mandate.service');
 
-    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3');
-    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3'); // redelivered webhook
+    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3', 'active');
+    await applyNewMandateRenewal('uid1', 'sub_3', 'pay_3', 'active'); // redelivered webhook
 
     expect(store.users.uid1.credits).toBe(304); // 5 + 299 once, not twice
   });
@@ -199,7 +199,7 @@ describe('checkNewMandateStatus', () => {
 
     // A later webhook delivering the SAME real payment id must not double-credit.
     const { applyNewMandateEntitlement } = await import('./mandate.service');
-    await applyNewMandateEntitlement('uid1', 'sub_4', 'pay_real_1', { via: 'webhook' });
+    await applyNewMandateEntitlement('uid1', 'sub_4', 'pay_real_1', 'active', { via: 'webhook' });
     expect(store.users.uid1.credits).toBe(5); // unchanged — trial ledger already claimed
   });
 

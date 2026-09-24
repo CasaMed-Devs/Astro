@@ -201,6 +201,7 @@ async function startNewMandateSubscription(
   await startSubscriptionCycleFromRazorpay(uid, subscription.subscriptionId, {
     planId: purpose === 'trial' ? 'trial' : 'plus',
     status: subscription.status as MandateStatus,
+    razorpayStatus: subscription.status,
     mandateMethod: method,
     registrationAmount: trial ? trial.amount : subscriptionAmount.amount,
   });
@@ -209,6 +210,7 @@ async function startNewMandateSubscription(
     {
       mandateMethod: method,
       mandateStatus: subscription.status,
+      razorpayStatus: subscription.status,
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -307,25 +309,32 @@ async function verifyNewMandateCheckout(
   const subscription = await fetchSubscription(input.subscriptionId);
 
   if (!ENTITLED_SUBSCRIPTION_STATUSES.has(subscription.status)) {
-    await updateNewMandateStatus(uid, input.subscriptionId, subscription.status as MandateStatus);
+    await updateNewMandateStatus(uid, input.subscriptionId, subscription.status as MandateStatus, subscription.status);
     return { status: 'pending' };
   }
 
-  await applyNewMandateEntitlement(uid, input.subscriptionId, input.paymentId, {
+  await applyNewMandateEntitlement(uid, input.subscriptionId, input.paymentId, subscription.status, {
     via: 'client_verify',
   });
   return { status: 'ok' };
 }
 
-/** Status-only sync (no crediting) — lifecycle events like activated/pending/halted/cancelled/completed. */
+/**
+ * Status-only sync (no crediting) — lifecycle events like
+ * activated/pending/halted/cancelled/completed. `status` is our own
+ * entitlement-view MandateStatus (see UserProfileRecord.mandateStatus);
+ * `razorpayStatus` is Razorpay's own subscription.status verbatim, kept
+ * alongside it purely for visibility — see UserProfileRecord.razorpayStatus.
+ */
 export async function updateNewMandateStatus(
   uid: string,
   subscriptionId: string,
   status: MandateStatus,
+  razorpayStatus: string,
 ): Promise<void> {
-  await updateCurrentSubscription(uid, { status }, subscriptionId);
+  await updateCurrentSubscription(uid, { status, razorpayStatus }, subscriptionId);
   await adminFirestore().collection('users').doc(uid).set(
-    { mandateStatus: status, updatedAt: FieldValue.serverTimestamp() },
+    { mandateStatus: status, razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
     { merge: true },
   );
 }
@@ -343,6 +352,7 @@ export async function applyNewMandateEntitlement(
   uid: string,
   subscriptionId: string,
   paymentId: string,
+  razorpayStatus: string,
   options: TransactionOptions,
 ): Promise<void> {
   const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
@@ -362,12 +372,13 @@ export async function applyNewMandateEntitlement(
 
   await updateCurrentSubscription(
     uid,
-    { status: 'active', lastPaymentId: paymentId, currentPeriodStart: Timestamp.now() },
+    { status: 'active', razorpayStatus, lastPaymentId: paymentId, currentPeriodStart: Timestamp.now() },
     subscriptionId,
   );
   await adminFirestore().collection('users').doc(uid).set(
     {
       mandateStatus: 'active',
+      razorpayStatus,
       subscriptionActivatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     },
@@ -394,7 +405,12 @@ export async function applyNewMandateEntitlement(
  * idempotency-by-paymentId means calling this for that same payment too,
  * from the webhook, is harmless). Idempotent per paymentId via creditWallet.
  */
-export async function applyNewMandateRenewal(uid: string, subscriptionId: string, paymentId: string): Promise<void> {
+export async function applyNewMandateRenewal(
+  uid: string,
+  subscriptionId: string,
+  paymentId: string,
+  razorpayStatus: string,
+): Promise<void> {
   const subscriptionAmount = await getSubscriptionAmount();
   const rupeesPerCredit = await getRupeesPerCredit();
   const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
@@ -404,12 +420,17 @@ export async function applyNewMandateRenewal(uid: string, subscriptionId: string
     {
       planId: 'plus',
       status: 'active',
+      razorpayStatus,
       lastPaymentId: paymentId,
       lastPaymentAmount: subscriptionAmount.amount,
       lastPaymentAt: Timestamp.now(),
       currentPeriodStart: Timestamp.now(),
     },
     subscriptionId,
+  );
+  await adminFirestore().collection('users').doc(uid).set(
+    { razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
   );
   await recordTransaction({
     uid,
@@ -453,16 +474,16 @@ export async function checkNewMandateStatus(uid: string, subscriptionId: string)
       // Razorpay says entitled, but no invoice/payment is visible yet
       // (can lag briefly) — sync status only and let the next check credit
       // it once the payment is actually queryable.
-      await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus);
+      await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
       return subscription.status as MandateStatus;
     }
-    await applyNewMandateEntitlement(uid, subscriptionId, firstPayment.paymentId, {
+    await applyNewMandateEntitlement(uid, subscriptionId, firstPayment.paymentId, subscription.status, {
       via: 'reconciliation',
     });
     return 'active';
   }
 
-  await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus);
+  await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
   return subscription.status as MandateStatus;
 }
 
@@ -478,5 +499,5 @@ export async function cancelNewMandateSubscription(
   }
 
   const cancelled = await cancelRazorpaySubscription(subscriptionId, cancelAtCycleEnd);
-  await updateNewMandateStatus(uid, subscriptionId, cancelled.status as MandateStatus);
+  await updateNewMandateStatus(uid, subscriptionId, cancelled.status as MandateStatus, cancelled.status);
 }

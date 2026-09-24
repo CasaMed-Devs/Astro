@@ -15,6 +15,7 @@ import {
   startTrialOrder,
   verifyTrialPayment,
 } from '@/services/payment.service';
+import { MetaEvents } from '@/services/analytics';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -46,6 +47,10 @@ export default function PaywallScreen() {
   const [waitingForConfirmation, setWaitingForConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Set once the trial subscription is created, read by finishTrial's
+  // Purchase event — needed there since the polling path reaches finishTrial
+  // without the subscription object handleStartTrial created it from.
+  const subscriptionIdRef = useRef<string | null>(null);
 
   // A user who already set up their mandate has nothing to trial — send
   // them to the Rs.299 "add credits" screen instead.
@@ -64,6 +69,14 @@ export default function PaywallScreen() {
   const finishTrial = async () => {
     finishingRef.current = true;
     stopPolling();
+    if (trialAmount != null && trialCurrency != null && subscriptionIdRef.current) {
+      MetaEvents.logPurchase({
+        amount: trialAmount,
+        currency: trialCurrency,
+        plan: 'trial',
+        subscriptionId: subscriptionIdRef.current,
+      });
+    }
     await refreshProfile().catch(() => {});
     router.replace('/(tabs)/home');
   };
@@ -118,6 +131,10 @@ export default function PaywallScreen() {
     setError(null);
     try {
       const subscription = await startTrialOrder(REGISTRATION_METHOD);
+      subscriptionIdRef.current = subscription.subscriptionId;
+      if (trialAmount != null && trialCurrency != null) {
+        MetaEvents.logInitiatedCheckout({ plan: 'trial', amount: trialAmount, currency: trialCurrency });
+      }
       const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Start your trial',

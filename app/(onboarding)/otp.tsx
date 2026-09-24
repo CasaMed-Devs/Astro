@@ -10,6 +10,7 @@ import { useOtpFlow } from '@/features/auth/context/OtpFlowProvider';
 import { useCountdown } from '@/hooks/useCountdown';
 import { showSuccessToast } from '@/utils/toast';
 import { confirmOtp, sendOtp } from '@/services/auth.service';
+import { MetaEvents } from '@/services/analytics';
 import { colors, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -32,7 +33,12 @@ export default function OtpScreen() {
     setError(null);
     setVerifying(true);
     try {
-      await confirmOtp(phoneNumber, value, identificationToken);
+      const { isNewUser } = await confirmOtp(phoneNumber, value, identificationToken);
+      // CompleteRegistration only for a genuinely new account — a returning
+      // user logging in again must never re-fire it (see META_INTEGRATION.md
+      // for why Hastrekha's own implementation gets this wrong).
+      if (isNewUser) MetaEvents.logCompleteRegistration({ method: 'phone_otp' });
+      MetaEvents.logLogin({ method: 'phone_otp' });
       showSuccessToast('Welcome!');
       Keyboard.dismiss();
       // Defer to the next frame so the keyboard-dismiss commit fully settles

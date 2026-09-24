@@ -15,6 +15,7 @@ import {
   startSubscriptionOrder,
   verifySubscriptionPayment,
 } from '@/services/payment.service';
+import { MetaEvents } from '@/services/analytics';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -51,6 +52,10 @@ export default function UpgradeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Set once the subscription is created, read by finish()'s Purchase event —
+  // needed there since the polling path reaches finish() without the
+  // subscription object handleSubscribe created it from.
+  const subscriptionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -70,6 +75,14 @@ export default function UpgradeScreen() {
   // navigation here, so nothing can race the native view tree).
   const finish = async () => {
     stopPolling();
+    if (amount != null && currency != null && subscriptionIdRef.current) {
+      MetaEvents.logPurchase({
+        amount,
+        currency,
+        plan: 'subscription',
+        subscriptionId: subscriptionIdRef.current,
+      });
+    }
     await refreshProfile().catch(() => {});
     setSucceeded(true);
   };
@@ -98,6 +111,10 @@ export default function UpgradeScreen() {
     setError(null);
     try {
       const subscription = await startSubscriptionOrder(REGISTRATION_METHOD);
+      subscriptionIdRef.current = subscription.subscriptionId;
+      if (amount != null && currency != null) {
+        MetaEvents.logInitiatedCheckout({ plan: 'subscription', amount, currency });
+      }
       const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Astro101 Plus subscription',
