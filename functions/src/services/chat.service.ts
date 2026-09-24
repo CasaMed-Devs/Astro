@@ -4,6 +4,7 @@ import { adminFirestore } from '../config/firebase-admin';
 import { listConversationMessages, sendChatMessage } from './personaApi.service';
 import type { PersonaChatMeta } from './personaApi.service';
 import { deductMessageCredit, getRemainingCredits } from './credits.service';
+import { getUserProfile } from './userProfile.service';
 import {
   NotFoundError,
   PersonaConversationNotFoundError,
@@ -73,13 +74,21 @@ async function requireOwnedChat(uid: string, chatId: string): Promise<PersonaCha
   return chat;
 }
 
-/** Auto-fills already-saved birth details; client-supplied context wins on overlap. */
+/**
+ * Auto-fills already-saved birth details; client-supplied context wins on
+ * overlap. Two reads (users/{uid} for the userProfileId pointer, then
+ * userProfiles/{id} for the actual fields) where this used to be one — the
+ * cost of the userProfiles split landing on the chat-send hot path. Both are
+ * single-doc reads (a few ms), negligible next to the AI reply latency this
+ * call is part of.
+ */
 async function buildContextForUser(
   uid: string,
   clientContext?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const snapshot = await adminFirestore().collection('users').doc(uid).get();
-  const profile = snapshot.data() as UserProfileRecord | undefined;
+  const user = snapshot.data() as UserProfileRecord | undefined;
+  const profile = user?.userProfileId ? await getUserProfile(user.userProfileId) : undefined;
 
   const autoContext: Record<string, string> = {};
   if (profile?.dateOfBirth) autoContext.dob = profile.dateOfBirth;

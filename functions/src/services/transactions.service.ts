@@ -42,9 +42,14 @@ export interface RecordTransactionInput {
  *
  * Relationships (Firestore has no foreign keys, so they are stored as ids and
  * checked here, in the same atomic transaction that writes the record):
- *   users/{uid}  --subscriptionId-->  subscriptions/{uid}  --lastTransactionId-->  transactions/{id}
+ *   users/{uid}  --subscriptionId-->  subscriptions/{autoId}  --lastTransactionId-->  transactions/{id}
  *   transactions/{id}  --userId / subscriptionId / orderId-->  users / subscriptions / paymentOrders
  *   payments/{...} and paymentOrders/{orderId}  --transactionId-->  transactions/{id}
+ *
+ * subscriptions/{autoId} is keyed per mandate-registration cycle (see
+ * mandate.service.ts's startSubscriptionCycle), not per user — this function
+ * only ever follows users/{uid}.subscriptionId to the CURRENT cycle; it never
+ * sets that pointer itself (mandate.service.ts owns it exclusively).
  *
  * Integrity checks — the record is refused (logged, never thrown) when:
  *   - the user doc does not exist (no orphan transactions), or
@@ -62,7 +67,6 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
     const db = adminFirestore();
     const userRef = db.collection('users').doc(input.uid);
     const txRef = db.collection('transactions').doc(input.paymentId);
-    const subscriptionRef = db.collection('subscriptions').doc(input.uid);
     const orderRef = input.orderId ? db.collection('paymentOrders').doc(input.orderId) : null;
     const isSubscriptionPurpose = SUBSCRIPTION_PURPOSES.has(input.purpose);
 
@@ -109,12 +113,19 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
         return;
       }
 
-      const userData = userSnapshot.data() as { transactionCount?: number; mandateMethod?: string };
+      const userData = userSnapshot.data() as {
+        transactionCount?: number;
+        mandateMethod?: string;
+        subscriptionId?: string;
+      };
       const sequence = (userData.transactionCount ?? 0) + 1;
+      // The user's current subscription cycle, if any — set exclusively by
+      // mandate.service.ts's startSubscriptionCycle. Never set/overwritten here.
+      const currentSubscriptionId = userData.subscriptionId ?? null;
 
       transaction.set(txRef, {
         userId: input.uid,
-        subscriptionId: isSubscriptionPurpose ? input.uid : null,
+        subscriptionId: isSubscriptionPurpose ? currentSubscriptionId : null,
         paymentId: input.paymentId,
         orderId: input.orderId ?? null,
         purpose: input.purpose,
@@ -132,14 +143,15 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
       });
 
       // Parent pointers, updated atomically with the transaction itself.
+      // Note: users.subscriptionId is NOT touched here — mandate.service.ts
+      // is its sole owner (see startSubscriptionCycle/updateCurrentSubscription).
       transaction.update(userRef, {
         transactionCount: FieldValue.increment(1),
         lastTransactionId: input.paymentId,
-        ...(isSubscriptionPurpose ? { subscriptionId: input.uid } : {}),
       });
-      if (isSubscriptionPurpose && input.status === 'paid') {
+      if (isSubscriptionPurpose && input.status === 'paid' && currentSubscriptionId) {
         transaction.set(
-          subscriptionRef,
+          db.collection('subscriptions').doc(currentSubscriptionId),
           {
             userId: input.uid,
             lastTransactionId: input.paymentId,

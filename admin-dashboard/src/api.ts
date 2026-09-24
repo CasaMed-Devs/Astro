@@ -74,7 +74,7 @@ export interface PricingUpdate {
 }
 
 export interface MandateDetail {
-  status: 'none' | 'pending' | 'active' | 'failed' | 'cancelled';
+  status: 'none' | 'created' | 'authenticated' | 'active' | 'past_due' | 'cancelled' | 'expired';
   method: 'card' | 'upi' | null;
   trialCreditsClaimed: boolean;
   nextAutoDebitAt?: string;

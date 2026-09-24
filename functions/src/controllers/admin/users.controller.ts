@@ -3,6 +3,7 @@ import type { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
 import { adminFirestore } from '../../config/firebase-admin';
+import { getUserProfile } from '../../services/userProfile.service';
 import { NotFoundError } from '../../utils/errors';
 import { uidForPhoneNumber } from '../../utils/uid';
 import type { ReportRecord, UserProfileRecord } from '../../types';
@@ -24,16 +25,17 @@ async function fetchUserDetail(uid: string) {
     createdAt?: Timestamp;
     updatedAt?: Timestamp;
   };
+  const profile = user.userProfileId ? await getUserProfile(user.userProfileId) : undefined;
   const report = reportSnap.data() as (ReportRecord & { generatedAt?: Timestamp }) | undefined;
 
   return {
     uid,
     phoneNumber: user.phoneNumber,
-    name: user.name,
-    dateOfBirth: user.dateOfBirth,
-    timeOfBirth: user.timeOfBirth,
-    placeOfBirth: user.placeOfBirth,
-    gender: user.gender,
+    name: profile?.name,
+    dateOfBirth: profile?.dateOfBirth,
+    timeOfBirth: profile?.timeOfBirth,
+    placeOfBirth: profile?.placeOfBirth,
+    gender: profile?.gender,
     credits: user.credits ?? 0,
     createdAt: serializeTimestamp(user.createdAt),
     updatedAt: serializeTimestamp(user.updatedAt),

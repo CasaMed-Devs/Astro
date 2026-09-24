@@ -60,10 +60,12 @@ function makeFakeFirestore(initial: Partial<Record<CollectionName, Record<string
     };
   }
 
+  let autoIdCounter = 0;
+
   function collection(name: CollectionName) {
     const predicates: Array<(d: Doc) => boolean> = [];
     const query = {
-      doc: (id: string) => docRef(name, id),
+      doc: (id?: string) => docRef(name, id ?? `auto_${name}_${++autoIdCounter}`),
       where(field: string, _op: string, value: unknown) {
         predicates.push((d) => d[field] === value);
         return query;
@@ -167,7 +169,7 @@ describe('reconcilePayments', () => {
 
     // The order is now resolved, so a second run does not even ask Razorpay.
     const second = await reconcilePayments('u1');
-    expect(second).toEqual({ resolved: [], pending: 0 });
+    expect(second).toEqual({ resolved: [], pending: 0, mandateStatus: 'none' });
     expect(store.users.u1.credits).toBe(100);
     expect(mockFetchOrderPayments).toHaveBeenCalledTimes(1);
   });
@@ -198,7 +200,7 @@ describe('reconcilePayments', () => {
 
     const result = await reconcilePayments('u1');
 
-    expect(result).toEqual({ resolved: [], pending: 1 });
+    expect(result).toEqual({ resolved: [], pending: 1, mandateStatus: 'none' });
     expect(store.paymentOrders.order_1.status).toBe('created');
     expect(store.users.u1.credits).toBe(0);
   });
@@ -213,7 +215,7 @@ describe('reconcilePayments', () => {
 
     const result = await reconcilePayments('u1');
 
-    expect(result).toEqual({ resolved: [], pending: 0 });
+    expect(result).toEqual({ resolved: [], pending: 0, mandateStatus: 'none' });
     expect(store.paymentOrders.order_old.status).toBe('expired');
   });
 
@@ -226,7 +228,7 @@ describe('reconcilePayments', () => {
 
     const result = await reconcilePayments('u1');
 
-    expect(result).toEqual({ resolved: [], pending: 0 });
+    expect(result).toEqual({ resolved: [], pending: 0, mandateStatus: 'none' });
     expect(mockFetchOrderPayments).not.toHaveBeenCalled();
   });
 

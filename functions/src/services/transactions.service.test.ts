@@ -57,8 +57,12 @@ function makeFakeFirestore(initial: Partial<Record<CollectionName, Record<string
     };
   }
 
+  let autoIdCounter = 0;
+
   const db = {
-    collection: (name: CollectionName) => ({ doc: (id: string) => docRef(name, id) }),
+    collection: (name: CollectionName) => ({
+      doc: (id?: string) => docRef(name, id ?? `auto_${name}_${++autoIdCounter}`),
+    }),
     runTransaction: async (fn: (t: unknown) => Promise<unknown>) =>
       fn({
         get: async (ref: { get: () => Promise<unknown> }) => ref.get(),
@@ -175,14 +179,31 @@ describe('recordTransaction', () => {
   });
 
   it('links user -> subscription -> transaction for a subscription payment', async () => {
-    const { db, store } = makeFakeFirestore({ users: { u1: { credits: 0 } } });
+    // subscriptionId is set here as mandate.service.ts's startSubscriptionCycle
+    // would have already done, before any transaction is ever recorded —
+    // recordTransaction only follows this pointer, it never sets it.
+    const { db, store } = makeFakeFirestore({
+      users: { u1: { credits: 0, subscriptionId: 'sub_cycle_1' } },
+      subscriptions: { sub_cycle_1: { userId: 'u1' } },
+    });
     mockAdminFirestore.mockReturnValue(db);
 
     await recordTransaction({ ...base, paymentId: 'pay_s', purpose: 'subscription', via: 'client_verify' });
 
-    expect(store.transactions.pay_s).toMatchObject({ userId: 'u1', subscriptionId: 'u1' });
-    expect(store.users.u1).toMatchObject({ subscriptionId: 'u1', lastTransactionId: 'pay_s' });
-    expect(store.subscriptions.u1).toMatchObject({ userId: 'u1', lastTransactionId: 'pay_s' });
+    expect(store.transactions.pay_s).toMatchObject({ userId: 'u1', subscriptionId: 'sub_cycle_1' });
+    // recordTransaction never touches users.subscriptionId — mandate.service.ts owns it.
+    expect(store.users.u1).toMatchObject({ subscriptionId: 'sub_cycle_1', lastTransactionId: 'pay_s' });
+    expect(store.subscriptions.sub_cycle_1).toMatchObject({ userId: 'u1', lastTransactionId: 'pay_s' });
+  });
+
+  it('does not write a subscription pointer when the user has no subscription cycle yet', async () => {
+    const { db, store } = makeFakeFirestore({ users: { u1: { credits: 0 } } });
+    mockAdminFirestore.mockReturnValue(db);
+
+    await recordTransaction({ ...base, paymentId: 'pay_s2', purpose: 'subscription', via: 'client_verify' });
+
+    expect(store.transactions.pay_s2).toMatchObject({ userId: 'u1', subscriptionId: null });
+    expect(Object.keys(store.subscriptions)).toHaveLength(0);
   });
 
   it('does not link a one-off top-up to the subscription', async () => {
@@ -199,8 +220,8 @@ describe('recordTransaction', () => {
 
   it('does not move the subscription pointer for a failed charge', async () => {
     const { db, store } = makeFakeFirestore({
-      users: { u1: { credits: 0 } },
-      subscriptions: { u1: { userId: 'u1', lastTransactionId: 'pay_ok' } },
+      users: { u1: { credits: 0, subscriptionId: 'sub_cycle_1' } },
+      subscriptions: { sub_cycle_1: { userId: 'u1', lastTransactionId: 'pay_ok' } },
     });
     mockAdminFirestore.mockReturnValue(db);
 
@@ -213,7 +234,7 @@ describe('recordTransaction', () => {
       via: 'webhook',
     });
 
-    expect(store.subscriptions.u1.lastTransactionId).toBe('pay_ok');
+    expect(store.subscriptions.sub_cycle_1.lastTransactionId).toBe('pay_ok');
     expect(store.users.u1.lastTransactionId).toBe('pay_bad');
   });
 

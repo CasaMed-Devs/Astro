@@ -119,6 +119,58 @@ export async function findMandateTokenId(
   return newest?.id ?? null;
 }
 
+export interface MandateTokenStatus {
+  /** Whether this token can still be charged, per Razorpay's own record. */
+  isLive: boolean;
+  /** Razorpay's raw token lifecycle status, when present ('active'/'suspended'/'deactivated'/'initiated'). */
+  status?: string;
+  /** The recurring-specific status (more authoritative for UPI/emandate methods). */
+  recurringStatus?: string;
+  failureReason?: string | null;
+}
+
+/**
+ * Ground truth for "is this mandate still actually chargeable," straight
+ * from Razorpay — Astro's local mandateStatus can otherwise only learn a
+ * mandate has died reactively, the next time a scheduled auto-debit attempt
+ * fails against it. Used by reconcileMandateStatus (mandate.service.ts) to
+ * self-correct local state instead of waiting for that failure.
+ */
+export async function fetchMandateTokenStatus(
+  customerId: string,
+  tokenId: string,
+): Promise<MandateTokenStatus | null> {
+  try {
+    const token = (await getClient().customers.fetchToken(customerId, tokenId)) as unknown as {
+      recurring?: boolean;
+      status?: string;
+      recurring_details?: { status?: string; failure_reason?: string | null };
+    };
+
+    const recurringStatus = token.recurring_details?.status;
+    // A token entity generally omits `status` for card tokens (only emandate/
+    // recurring-specific tokens set it) — treat "not present" as fine, and
+    // only treat explicitly bad values as dead.
+    const statusIsBad = token.status === 'suspended' || token.status === 'deactivated';
+    const recurringStatusIsBad =
+      recurringStatus != null &&
+      !['confirmed', 'active', 'authenticated'].includes(recurringStatus);
+
+    return {
+      isLive: token.recurring !== false && !statusIsBad && !recurringStatusIsBad,
+      status: token.status,
+      recurringStatus,
+      failureReason: token.recurring_details?.failure_reason ?? null,
+    };
+  } catch (error) {
+    // A 404 here most often means the token/customer no longer exists on
+    // Razorpay's side at all — treat as dead rather than throwing, since
+    // this is a background health-check, not a payment-critical call.
+    console.warn(`[razorpay] fetchMandateTokenStatus failed for token ${tokenId}`, error);
+    return null;
+  }
+}
+
 export interface VerifySignatureInput {
   orderId: string;
   paymentId: string;

@@ -6,6 +6,7 @@ import { adminFirestore } from '../config/firebase-admin';
 import { env } from '../config/env';
 import { pixyLogin, pixyVerifyOtp } from '../services/pixyAuth.service';
 import { createSessionToken } from '../services/token.service';
+import { createUserProfile } from '../services/userProfile.service';
 import { uidForPhoneNumber } from '../utils/uid';
 
 const phoneSchema = z
@@ -32,11 +33,12 @@ async function signInUser(phoneNumber: string): Promise<{ uid: string; token: st
   const snapshot = await userRef.get();
 
   if (!snapshot.exists) {
+    const userProfileId = await createUserProfile(uid);
     await userRef.set({
       uid,
       phoneNumber,
       credits: 0,
-      fcmTokens: [],
+      userProfileId,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });

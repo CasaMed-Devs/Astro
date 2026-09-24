@@ -5,7 +5,11 @@ import { getRupeesPerCredit } from '../config/plans';
 import { recordKundaliPayment } from '../controllers/payment.controller';
 import { creditWallet } from './credits.service';
 import { recordTransaction, type TransactionVia } from './transactions.service';
-import { applySubscriptionPayment, completeMandateRegistration } from './mandate.service';
+import {
+  applySubscriptionPayment,
+  completeMandateRegistration,
+  reconcileMandateStatus,
+} from './mandate.service';
 import type { PaymentOrderPurpose } from './paymentOrders.service';
 import {
   fetchOrderPayments,
@@ -13,6 +17,7 @@ import {
   paiseToRupees,
   type OrderPayment,
 } from './razorpay.service';
+import type { MandateStatus } from '../types';
 
 const ORDER_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ORDERS_PER_RUN = 20;
@@ -94,16 +99,25 @@ export interface ReconcileResult {
   resolved: { purpose: string; orderId: string }[];
   /** Orders still waiting on a captured payment (or a mandate token). */
   pending: number;
+  /**
+   * The user's mandate status after checking it against Razorpay directly
+   * (see mandate.service.ts's reconcileMandateStatus) — catches a mandate
+   * Razorpay has already cancelled/suspended before the next scheduled
+   * auto-debit would otherwise be the first thing to notice.
+   */
+  mandateStatus: MandateStatus;
 }
 
 /**
  * Last-resort safety net behind the client verify and the webhook: for the
  * user's recent unresolved orders, ask Razorpay whether a payment was
- * captured and apply it if so. Called by the app when it returns to the
+ * captured and apply it if so. Also re-checks the user's mandate token
+ * health directly against Razorpay. Called by the app when it returns to the
  * foreground. Safe to call repeatedly and concurrently.
  */
 export async function reconcilePayments(uid: string): Promise<ReconcileResult> {
   const db = adminFirestore();
+  const mandateStatus = await reconcileMandateStatus(uid);
   const snapshot = await db
     .collection('paymentOrders')
     .where('userId', '==', uid)
@@ -158,5 +172,5 @@ export async function reconcilePayments(uid: string): Promise<ReconcileResult> {
     }
   }
 
-  return { resolved, pending };
+  return { resolved, pending, mandateStatus };
 }

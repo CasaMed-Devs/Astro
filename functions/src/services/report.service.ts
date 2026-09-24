@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminFirestore } from '../config/firebase-admin';
 import { generateAstrologerReply } from './ai.service';
 import { calculateKundali, type GeoDetails, type KundaliData } from './astrology.service';
+import { getUserProfile } from './userProfile.service';
 import { parseBirthDateTime } from '../utils/birthDateTime';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
@@ -101,28 +102,29 @@ export async function generateAndStoreReport(uid: string): Promise<void> {
   if (!userSnapshot.exists) throw new NotFoundError('User profile not found.');
 
   const user = userSnapshot.data() as UserProfileRecord;
+  const profile = user.userProfileId ? await getUserProfile(user.userProfileId) : undefined;
   const reportRef = db.collection('reports').doc(uid);
 
   try {
-    if (!user.dateOfBirth || !user.timeOfBirth || !user.placeOfBirth) {
+    if (!profile?.dateOfBirth || !profile?.timeOfBirth || !profile?.placeOfBirth) {
       throw new ValidationError(
         'Complete birth details (date, time, place) are required for a kundali report.',
       );
     }
 
-    const birth = parseBirthDateTime(user.dateOfBirth, user.timeOfBirth);
+    const birth = parseBirthDateTime(profile.dateOfBirth, profile.timeOfBirth);
 
     const geoOverride: GeoDetails | undefined =
-      user.latitude != null && user.longitude != null && user.timezoneOffset != null
+      profile.latitude != null && profile.longitude != null && profile.timezoneOffset != null
         ? {
-            latitude: user.latitude,
-            longitude: user.longitude,
-            timezoneOffset: user.timezoneOffset,
-            completeName: user.placeOfBirth,
+            latitude: profile.latitude,
+            longitude: profile.longitude,
+            timezoneOffset: profile.timezoneOffset,
+            completeName: profile.placeOfBirth,
           }
         : undefined;
 
-    const kundali = await calculateKundali(birth, user.placeOfBirth, geoOverride);
+    const kundali = await calculateKundali(birth, profile.placeOfBirth, geoOverride);
 
     // Firestore rejects `undefined` — strip optional planet fields that may be absent.
     const firestoreKundali = {
@@ -144,8 +146,8 @@ export async function generateAndStoreReport(uid: string): Promise<void> {
     await reportRef.set({ phoneNumber: uid, kundali: firestoreKundali }, { merge: true });
 
     const prompt = [
-      `Name: ${user.name ?? 'the user'}. Gender: ${user.gender ?? 'unspecified'}.`,
-      `Date of birth: ${user.dateOfBirth}. Time of birth: ${user.timeOfBirth}.`,
+      `Name: ${profile.name ?? 'the user'}. Gender: ${profile.gender ?? 'unspecified'}.`,
+      `Date of birth: ${profile.dateOfBirth}. Time of birth: ${profile.timeOfBirth}.`,
       '',
       formatChartForPrompt(kundali),
       '',

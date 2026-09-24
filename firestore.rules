@@ -16,6 +16,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Personal/birth details (name, dob/tob/pob, gender), split out of
+    // users/{uid} — see functions/src/services/userProfile.service.ts. Doc
+    // id is a generated id, referenced by users/{uid}.userProfileId.
+    match /userProfiles/{userProfileId} {
+      allow read, write: if false;
+    }
+
     match /chats/{chatId} {
       allow read, write: if false;
 
@@ -24,7 +31,10 @@ service cloud.firestore {
       }
     }
 
-    match /subscriptions/{phoneNumber} {
+    // Doc id is a generated id, one per mandate-registration cycle — not the
+    // user's phone number — see functions/src/services/mandate.service.ts's
+    // startSubscriptionCycle. Referenced by users/{uid}.subscriptionId.
+    match /subscriptions/{subscriptionId} {
       allow read, write: if false;
     }
 
@@ -40,6 +50,13 @@ service cloud.firestore {
 
     // Every Razorpay order we created; what payment reconciliation checks.
     match /paymentOrders/{orderId} {
+      allow read, write: if false;
+    }
+
+    // A Razorpay auto-debit charge that succeeded (money taken) whose local
+    // crediting then failed — see mandate.service.ts's finalizeAutoDebitCharge.
+    // Needs manual reconciliation; doc id = the Razorpay payment id.
+    match /failedCredits/{paymentId} {
       allow read, write: if false;
     }
 

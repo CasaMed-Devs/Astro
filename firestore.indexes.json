@@ -8,6 +8,22 @@
         { "fieldPath": "purpose", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mandateStatus", "order": "ASCENDING" },
+        { "fieldPath": "nextAutoDebitAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mandateStatus", "order": "ASCENDING" },
+        { "fieldPath": "graceUntil", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -1,6 +1,18 @@
 export type Gender = 'female' | 'male' | 'other';
 export type MandateMethod = 'card' | 'upi';
-export type MandateStatus = 'none' | 'pending' | 'active' | 'failed' | 'cancelled';
+// Mirrors functions/src/types/index.ts's MandateStatus — kept in sync by hand
+// (backend and app are separate TS projects with no shared package today).
+// The app only ever branches on `=== 'active'`, so none of these newer
+// intermediate values ('created'/'authenticated'/'expired') require any UI
+// changes — they're additive, for richer status display if/when wanted.
+export type MandateStatus =
+  | 'none'
+  | 'created'
+  | 'authenticated'
+  | 'active'
+  | 'past_due'
+  | 'cancelled'
+  | 'expired';
 
 export interface UserProfile {
   uid: string;

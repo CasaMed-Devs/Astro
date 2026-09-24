@@ -1,9 +1,9 @@
 import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-import { adminFirestore, adminMessaging } from '../config/firebase-admin';
+import { adminFirestore } from '../config/firebase-admin';
 import { fetchOrder, paiseToRupees, verifyWebhookSignature } from '../services/razorpay.service';
-import { completeMandateRegistration } from '../services/mandate.service';
+import { completeMandateRegistration, markAuthenticated } from '../services/mandate.service';
 import { applyCapturedPayment } from '../services/reconcile.service';
 import { recordTransaction } from '../services/transactions.service';
 import { recordKundaliPayment } from './payment.controller';
@@ -84,6 +84,11 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
             orderId: payment.order_id,
             paymentMethod: payment.method,
           });
+        } else if (isRegistration && payment) {
+          // Payment captured, but Razorpay hasn't attached a token yet (e.g. a
+          // UPI mandate still confirming with the bank) — token.confirmed
+          // (or a later payment.captured carrying token_id) finishes this.
+          await markAuthenticated(uid);
         }
         // Wallet top-ups and one-time subscription orders had no webhook
         // fallback before — same idempotent path the client verify uses.
@@ -149,7 +154,6 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
               via: 'webhook',
             });
           }
-          await sendAutoDebitFailedNotification(uid);
         }
         break;
       }
@@ -189,24 +193,9 @@ async function recoverNotes(
 
   const user = doc.data() as UserProfileRecord;
   // Only a user with a registration in flight is completing one; anything
-  // else (e.g. an auto-debit) always carries its own notes.
-  if (user.mandateStatus !== 'pending') return undefined;
+  // else (e.g. an auto-debit) always carries its own notes. A registration in
+  // flight spans 'created' (order made, unpaid) through 'authenticated'
+  // (paid, token not confirmed yet).
+  if (user.mandateStatus !== 'created' && user.mandateStatus !== 'authenticated') return undefined;
   return { uid: doc.id, purpose: user.trialCreditsClaimed ? 'direct_subscription' : 'trial' };
-}
-
-async function sendAutoDebitFailedNotification(uid: string): Promise<void> {
-  const userSnapshot = await adminFirestore().collection('users').doc(uid).get();
-  if (!userSnapshot.exists) return;
-
-  const user = userSnapshot.data() as UserProfileRecord & { fcmTokens?: string[] };
-  const tokens = user.fcmTokens ?? [];
-  if (tokens.length === 0) return;
-
-  await adminMessaging().sendEachForMulticast({
-    tokens,
-    notification: {
-      title: 'Your Astro101 auto-debit failed',
-      body: 'Update your payment method within 3 days to keep your monthly credits coming.',
-    },
-  });
 }

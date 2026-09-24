@@ -23,18 +23,17 @@ type Doc = Record<string, unknown>;
  * runTransaction. Good enough to exercise the idempotency and scheduling
  * logic without a real emulator.
  */
+type CollectionName = 'users' | 'payments' | 'subscriptions' | 'failedCredits';
+
 function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Record<string, Doc> }) {
-  const store: {
-    users: Record<string, Doc>;
-    payments: Record<string, Doc>;
-    subscriptions: Record<string, Doc>;
-  } = {
+  const store: Record<CollectionName, Record<string, Doc>> = {
     users: { ...(initial.users ?? {}) },
     payments: { ...(initial.payments ?? {}) },
     subscriptions: {},
+    failedCredits: {},
   };
 
-  function docRef(collectionName: 'users' | 'payments' | 'subscriptions', id: string) {
+  function docRef(collectionName: CollectionName, id: string) {
     return {
       id,
       get: async () => ({
@@ -74,9 +73,11 @@ function makeFakeFirestore(initial: { users?: Record<string, Doc>; payments?: Re
     return result;
   }
 
-  function collection(name: 'users' | 'payments' | 'subscriptions') {
+  let autoIdCounter = 0;
+
+  function collection(name: CollectionName) {
     return {
-      doc: (id: string) => docRef(name, id),
+      doc: (id?: string) => docRef(name, id ?? `auto_${name}_${++autoIdCounter}`),
       where(field: string, op: string, value: unknown) {
         const predicates: Array<(d: Doc) => boolean> = [
           (d) => {
@@ -175,10 +176,15 @@ describe('completeMandateRegistration (trial path)', () => {
 
     expect(store.users.uid1.credits).toBe(15); // +5 once, not +10
     expect(store.users.uid1.trialCreditsClaimed).toBe(true);
-    expect(store.subscriptions.uid1).toMatchObject({
+    // No prior startRegistration/startTrialOrder call in this test, so
+    // completeMandateRegistration's self-healing path starts a fresh cycle
+    // and points users.uid1.subscriptionId at it.
+    const subscriptionId = store.users.uid1.subscriptionId as string;
+    expect(subscriptionId).toBeTruthy();
+    expect(store.subscriptions[subscriptionId]).toMatchObject({
       userId: 'uid1',
       planId: 'trial',
-      status: 'trialing',
+      status: 'active', // trial vs. paid is distinguished by planId, not a separate status
       razorpayTokenId: 'tok_1',
     });
     expect(store.users.uid1.mandateStatus).toBe('active');
@@ -271,5 +277,51 @@ describe('processDueAutoDebits', () => {
     expect(store.users.uid1.credits).toBe(5); // untouched
     expect(store.users.uid1.graceUntil).toBeDefined();
     expect(store.users.uid1.lastPaymentFailureReason).toBe('card declined');
+  });
+
+  it('never opens a grace period or leaves the schedule unmoved when the charge succeeds but crediting then fails', async () => {
+    // This is the money-safety case: Razorpay has already taken the payment
+    // by the time chargeRecurringToken resolves. A bookkeeping failure after
+    // that (recordTransaction throwing here) must NOT look like a failed
+    // charge — that would wrongly grace-period a user who already paid, and
+    // (critically) leave nextAutoDebitAt unmoved, which would make the next
+    // hourly run charge them a second time for the same cycle.
+    const past = Timestamp.fromMillis(Date.now() - 1000);
+    const { db, store } = makeFakeFirestore({
+      users: {
+        uid1: {
+          phoneNumber: '+911234567890',
+          credits: 5,
+          mandateStatus: 'active',
+          razorpayCustomerId: 'cust_1',
+          razorpayTokenId: 'tok_1',
+          nextAutoDebitAt: past,
+          nextAutoDebitAmount: 299,
+        },
+      },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const transactionsService = await import('./transactions.service');
+    (transactionsService.recordTransaction as jest.Mock).mockRejectedValueOnce(
+      new Error('firestore hiccup'),
+    );
+    const { processDueAutoDebits } = await import('./mandate.service');
+
+    const result = await processDueAutoDebits();
+
+    expect(result).toEqual({ charged: 0, failed: 1 });
+    // Not a "failed charge" — no grace period opened, no failure reason on the user.
+    expect(store.users.uid1.graceUntil).toBeUndefined();
+    expect(store.users.uid1.lastPaymentFailureReason).toBeUndefined();
+    // The schedule was still advanced, so the next hourly run won't charge again.
+    expect((store.users.uid1.nextAutoDebitAt as Timestamp).toMillis()).toBeGreaterThan(past.toMillis());
+    // The successful charge is durably recorded for manual reconciliation.
+    expect(store.failedCredits.pay_auto_1).toMatchObject({
+      userId: 'uid1',
+      paymentId: 'pay_auto_1',
+      amountRupees: 299,
+      resolved: false,
+    });
   });
 });

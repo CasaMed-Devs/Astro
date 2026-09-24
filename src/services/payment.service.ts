@@ -1,6 +1,6 @@
 import { apiClient } from '@/services/apiClient';
 import { AppError } from '@/utils/errors';
-import type { MandateDoc, MandateMethod } from '@/types/firestore';
+import type { MandateDoc, MandateMethod, MandateStatus } from '@/types/firestore';
 
 export interface PaymentOrder {
   orderId: string;
@@ -58,11 +58,20 @@ export interface UpgradeNowResult {
   newBalance?: number;
   registrationLinkId?: string;
   shortUrl?: string;
+  // Set when the charge succeeded but crediting hasn't completed yet — the
+  // payment is real and must not be retried; credits will land shortly via
+  // manual reconciliation. Show "payment received, credits are on the way"
+  // rather than an error if this is true.
+  creditingPending?: boolean;
 }
 
 export interface ReconcileResult {
   resolved: { purpose: string; orderId: string }[];
   pending: number;
+  // The user's mandate status after being checked directly against Razorpay
+  // (catches a mandate Razorpay already cancelled, before the next scheduled
+  // auto-debit attempt would otherwise be the first thing to notice).
+  mandateStatus: MandateStatus;
 }
 
 /**

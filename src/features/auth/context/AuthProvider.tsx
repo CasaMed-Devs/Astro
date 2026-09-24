@@ -87,7 +87,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       lastReconcileAt.current = now;
       try {
         const result = await reconcilePayments();
-        if (result.resolved.length > 0) await fetchProfile();
+        // Refresh on a resolved order, or when the live Razorpay check just
+        // downgraded the mandate — the paywall gate reads profile.mandateStatus,
+        // so it needs the corrected value too. (Checking `=== 'cancelled'`
+        // rather than diffing against `profile` here avoids a stale-closure
+        // read of profile state inside this effect.)
+        if (result.resolved.length > 0 || result.mandateStatus === 'cancelled') {
+          await fetchProfile();
+        }
       } catch (error) {
         if (__DEV__) {
           console.warn('[AuthProvider] reconcilePayments failed:', error);
