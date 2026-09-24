@@ -154,6 +154,18 @@ export function verifyTopUpPayment(input: VerifyPaymentInput): Promise<TopUpResu
 }
 
 /**
+ * The app never collects a real email from the user (a deliberate product
+ * decision — see mandate.service.ts's own comment on the backend), but
+ * Razorpay Checkout's email field is otherwise left blank and prompts the
+ * user to type one in. Prefilling this same synthetic address (matching
+ * exactly what the backend already uses for the Razorpay customer/notify
+ * fields) means the user never sees that prompt at all.
+ */
+function syntheticEmail(uid: string): string {
+  return `${uid}@users.astro101.app`;
+}
+
+/**
  * Opens the Razorpay checkout UI for a backend-issued one-time order
  * (top-up/report — the only remaining order-based flows). The client never
  * decides success on its own — callers must still invoke the matching
@@ -161,7 +173,7 @@ export function verifyTopUpPayment(input: VerifyPaymentInput): Promise<TopUpResu
  */
 export async function openRazorpayCheckout(
   order: PaymentOrder,
-  options: { name: string; description: string; contact?: string },
+  options: { name: string; description: string; uid: string; contact?: string },
 ): Promise<VerifyPaymentInput> {
   const RazorpayCheckout = loadRazorpayCheckout();
 
@@ -173,7 +185,10 @@ export async function openRazorpayCheckout(
       currency: order.currency,
       name: options.name,
       description: options.description,
-      prefill: options.contact ? { contact: options.contact } : undefined,
+      prefill: {
+        email: syntheticEmail(options.uid),
+        ...(options.contact ? { contact: options.contact } : {}),
+      },
       theme: { color: '#B25F0A' },
     });
 
@@ -195,7 +210,7 @@ export async function openRazorpayCheckout(
  */
 export async function openRazorpaySubscriptionCheckout(
   subscription: NewMandateSubscription,
-  options: { name: string; description: string; contact?: string; method?: MandateMethod },
+  options: { name: string; description: string; uid: string; contact?: string; method?: MandateMethod },
 ): Promise<VerifySubscriptionInput> {
   const RazorpayCheckout = loadRazorpayCheckout();
 
@@ -205,9 +220,11 @@ export async function openRazorpaySubscriptionCheckout(
       subscription_id: subscription.subscriptionId,
       name: options.name,
       description: options.description,
-      prefill: options.contact
-        ? { contact: options.contact, ...(options.method ? { method: options.method } : {}) }
-        : undefined,
+      prefill: {
+        email: syntheticEmail(options.uid),
+        ...(options.contact ? { contact: options.contact } : {}),
+        ...(options.method ? { method: options.method } : {}),
+      },
       theme: { color: '#B25F0A' },
     });
 

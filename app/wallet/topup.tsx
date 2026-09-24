@@ -111,6 +111,7 @@ export default function TopUpScreen() {
       const result = await openRazorpayCheckout(order, {
         name: 'Astro101 wallet top-up',
         description: `Add ${amountRupees} credits`,
+        uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
       });
       paid = true;

@@ -110,6 +110,7 @@ jest.mock('../config/plans', () => ({
 jest.mock('./razorpay.service', () => ({
   createRecurringSubscription: jest.fn(),
   fetchSubscription: jest.fn(),
+  fetchSubscriptionPayments: jest.fn(),
   cancelSubscription: jest.fn(),
   verifySubscriptionPaymentSignature: jest.fn(),
 }));
@@ -167,7 +168,13 @@ describe('applyNewMandateRenewal', () => {
 });
 
 describe('checkNewMandateStatus', () => {
-  it('credits the entitlement if Razorpay reports it captured but local state has not caught up', async () => {
+  it('credits the entitlement under the REAL Razorpay payment id, not a synthetic one', async () => {
+    // Regression test: this self-heal path used to invent a fake payment id
+    // (`sub_poll_${subscriptionId}`) because fetchSubscription() alone
+    // doesn't return one. That risked double-crediting a direct (non-trial)
+    // subscription: if this path credited under the fake id first, a later
+    // webhook/client-verify call carrying the REAL id wouldn't match it and
+    // would credit again. It must use the real id from the Invoices API.
     const { db, store } = makeFakeFirestore({
       users: { uid1: { phoneNumber: '+911234567890', credits: 0, subscriptionId: 'sub_4' } },
       subscriptions: { sub_4: { userId: 'uid1', planId: 'trial', status: 'created' } },
@@ -176,6 +183,9 @@ describe('checkNewMandateStatus', () => {
     (adminFirestore as jest.Mock).mockReturnValue(db);
     const razorpayService = await import('./razorpay.service');
     (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'active' });
+    (razorpayService.fetchSubscriptionPayments as jest.Mock).mockResolvedValue([
+      { paymentId: 'pay_real_1', amountPaise: 100, currency: 'INR', createdAt: 1000 },
+    ]);
     const { checkNewMandateStatus } = await import('./mandate.service');
 
     const status = await checkNewMandateStatus('uid1', 'sub_4');
@@ -183,6 +193,33 @@ describe('checkNewMandateStatus', () => {
     expect(status).toBe('active');
     expect(store.users.uid1.credits).toBe(5);
     expect(store.users.uid1.mandateStatus).toBe('active');
+    // The ledger doc that grantTrialCreditsOnce writes proves which payment
+    // id this run was keyed on.
+    expect(store.payments.trial_credits_uid1).toBeDefined();
+
+    // A later webhook delivering the SAME real payment id must not double-credit.
+    const { applyNewMandateEntitlement } = await import('./mandate.service');
+    await applyNewMandateEntitlement('uid1', 'sub_4', 'pay_real_1', { via: 'webhook' });
+    expect(store.users.uid1.credits).toBe(5); // unchanged — trial ledger already claimed
+  });
+
+  it('only syncs status, without crediting, when Razorpay reports entitled but no invoice payment is visible yet', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, subscriptionId: 'sub_7' } },
+      subscriptions: { sub_7: { userId: 'uid1', planId: 'trial', status: 'created' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const razorpayService = await import('./razorpay.service');
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'authenticated' });
+    (razorpayService.fetchSubscriptionPayments as jest.Mock).mockResolvedValue([]);
+    const { checkNewMandateStatus } = await import('./mandate.service');
+
+    const status = await checkNewMandateStatus('uid1', 'sub_7');
+
+    expect(status).toBe('authenticated');
+    expect(store.users.uid1.credits).toBe(0); // not credited yet
+    expect(store.subscriptions.sub_7.status).toBe('authenticated');
   });
 
   it('does not re-credit an already-entitled cycle, just syncs status', async () => {

@@ -6,6 +6,7 @@ import {
   cancelSubscription as cancelRazorpaySubscription,
   createRecurringSubscription,
   fetchSubscription,
+  fetchSubscriptionPayments,
   verifySubscriptionPaymentSignature,
   type VerifySubscriptionSignatureInput,
 } from './razorpay.service';
@@ -365,7 +366,11 @@ export async function applyNewMandateEntitlement(
     subscriptionId,
   );
   await adminFirestore().collection('users').doc(uid).set(
-    { mandateStatus: 'active', updatedAt: FieldValue.serverTimestamp() },
+    {
+      mandateStatus: 'active',
+      subscriptionActivatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
     { merge: true },
   );
 
@@ -435,11 +440,23 @@ export async function checkNewMandateStatus(uid: string, subscriptionId: string)
   const alreadyEntitled = cycle.status === 'active' || cycle.status === 'completed';
 
   if (entitled && !alreadyEntitled) {
-    // fetchSubscription doesn't surface the individual payment id — a
-    // synthetic, deterministic id is fine here since this transition (not
-    // yet entitled -> entitled) only happens once per cycle, and
-    // creditWallet's idempotency is keyed on whatever id is passed.
-    await applyNewMandateEntitlement(uid, subscriptionId, `sub_poll_${subscriptionId}`, {
+    // fetchSubscription() alone doesn't surface the individual payment id —
+    // look it up via the Invoices API (see razorpay.service.ts's
+    // fetchSubscriptionPayments) and credit under that REAL id. A synthetic
+    // placeholder id here would not match whatever real id the webhook or
+    // client verify later uses for the same charge, and creditWallet's
+    // idempotency is keyed on the id passed in — so a synthetic id risks
+    // crediting the same charge twice under two different ids.
+    const payments = await fetchSubscriptionPayments(subscriptionId);
+    const firstPayment = payments[0];
+    if (!firstPayment) {
+      // Razorpay says entitled, but no invoice/payment is visible yet
+      // (can lag briefly) — sync status only and let the next check credit
+      // it once the payment is actually queryable.
+      await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus);
+      return subscription.status as MandateStatus;
+    }
+    await applyNewMandateEntitlement(uid, subscriptionId, firstPayment.paymentId, {
       via: 'reconciliation',
     });
     return 'active';

@@ -205,6 +205,7 @@ export default function ReportScreen() {
       const result = await openRazorpayCheckout(order, {
         name: 'Astro101',
         description: 'Unlock your Janma Kundali',
+        uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
       });
       await verifyReportPayment(result);

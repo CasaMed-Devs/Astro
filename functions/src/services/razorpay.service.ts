@@ -237,3 +237,41 @@ export function verifySubscriptionPaymentSignature(input: VerifySubscriptionSign
     throw new PaymentVerificationError();
   }
 }
+
+export interface SubscriptionPayment {
+  paymentId: string;
+  amountPaise: number;
+  currency: string;
+  createdAt: number; // unix seconds
+}
+
+/**
+ * Returns captured payments for one subscription, oldest first — the real
+ * payment id(s) behind its charges. fetchSubscription() alone never surfaces
+ * this (Razorpay's subscription entity doesn't carry payment ids), and
+ * `payments.all({ subscription_id })` silently ignores that filter and
+ * returns payments across the whole merchant account — the Invoices API is
+ * the only correct way to scope this to one subscription. Used by
+ * checkNewMandateStatus (mandate.service.ts) so its self-heal path can credit
+ * a charge under its real payment id instead of a synthetic placeholder,
+ * which would otherwise not match — and so double-credit — whatever id the
+ * webhook or client verify uses for the same charge.
+ */
+export async function fetchSubscriptionPayments(subscriptionId: string): Promise<SubscriptionPayment[]> {
+  const response = await getClient().invoices.all({
+    subscription_id: subscriptionId,
+    count: 100,
+  } as unknown as Parameters<Razorpay['invoices']['all']>[0]);
+
+  const invoices = (response as unknown as { items?: Record<string, unknown>[] }).items ?? [];
+
+  return invoices
+    .filter((inv) => inv.subscription_id === subscriptionId && inv.status === 'paid' && !!inv.payment_id)
+    .map((inv) => ({
+      paymentId: inv.payment_id as string,
+      amountPaise: Number(inv.amount_paid ?? inv.amount ?? 0),
+      currency: String(inv.currency ?? 'INR'),
+      createdAt: Number(inv.created_at ?? 0),
+    }))
+    .sort((a, b) => a.createdAt - b.createdAt);
+}

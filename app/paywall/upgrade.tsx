@@ -101,6 +101,7 @@ export default function UpgradeScreen() {
       const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Astro101 Plus subscription',
+        uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
         method: REGISTRATION_METHOD,
       });

@@ -121,6 +121,7 @@ export default function PaywallScreen() {
       const result = await openRazorpaySubscriptionCheckout(subscription, {
         name: 'Astro101',
         description: 'Start your trial',
+        uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
         method: REGISTRATION_METHOD,
       });

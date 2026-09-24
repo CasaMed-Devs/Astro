@@ -74,6 +74,12 @@ export interface UserProfileRecord {
   // re-register gets a fresh id here, so a prior cycle's history is never
   // overwritten. transactions.service.ts only reads this field, never writes it.
   subscriptionId?: string;
+  // Set the first time this subscription cycle's mandate becomes entitled
+  // (applyNewMandateEntitlement) — the trial's Rs.1 addon charge, or a direct
+  // subscription's first charge. Not touched by renewals, cancellations, or
+  // status-only syncs; a cancel-then-re-register overwrites it with the new
+  // cycle's own activation time.
+  subscriptionActivatedAt?: FirebaseFirestore.Timestamp;
   lastTransactionId?: string; // transactions/{id}, the user's newest payment
   transactionCount?: number;
 }
