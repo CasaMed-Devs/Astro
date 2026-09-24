@@ -117,19 +117,19 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
         // the idempotency on; otherwise just sync status.
         if (!subscription) break;
         if (payment) {
-          await applyNewMandateEntitlement(uid, subscription.id, payment.id, {
+          await applyNewMandateEntitlement(uid, subscription.id, payment.id, subscription.status, {
             via: 'webhook',
             paymentMethod: payment.method,
           });
         } else {
-          await updateNewMandateStatus(uid, subscription.id, 'authenticated');
+          await updateNewMandateStatus(uid, subscription.id, 'authenticated', subscription.status);
         }
         break;
       }
 
       case 'subscription.activated': {
         if (!subscription) break;
-        await updateNewMandateStatus(uid, subscription.id, 'active');
+        await updateNewMandateStatus(uid, subscription.id, 'active', subscription.status);
         break;
       }
 
@@ -142,9 +142,9 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
         const cycleStatus = cycleSnapshot.data()?.status;
         const alreadyEntitled = cycleStatus === 'active' || cycleStatus === 'completed';
         if (alreadyEntitled) {
-          await applyNewMandateRenewal(uid, subscription.id, payment.id);
+          await applyNewMandateRenewal(uid, subscription.id, payment.id, subscription.status);
         } else {
-          await applyNewMandateEntitlement(uid, subscription.id, payment.id, {
+          await applyNewMandateEntitlement(uid, subscription.id, payment.id, subscription.status, {
             via: 'webhook',
             paymentMethod: payment.method,
           });
@@ -157,7 +157,7 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
       case 'subscription.cancelled':
       case 'subscription.completed': {
         if (!subscription) break;
-        await updateNewMandateStatus(uid, subscription.id, SUBSCRIPTION_STATUS_EVENTS[payload.event]);
+        await updateNewMandateStatus(uid, subscription.id, SUBSCRIPTION_STATUS_EVENTS[payload.event], subscription.status);
         break;
       }
 

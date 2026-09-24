@@ -62,7 +62,17 @@ export interface UserProfileRecord {
   // later cancelled and re-registered.
   trialCreditsClaimed?: boolean;
   mandateMethod?: MandateMethod;
+  // App's own entitlement view: 'active' means the user should have
+  // access/credits right now, set the moment a charge is captured — even
+  // while Razorpay's own subscription is still 'authenticated' (e.g. the
+  // Rs.1 trial addon, captured before the real billing cycle starts). See
+  // razorpayStatus below for what Razorpay itself reports.
   mandateStatus?: MandateStatus;
+  // Razorpay's own subscription.status, verbatim, from whichever fetch/
+  // webhook last reported it — not translated or overridden by our own
+  // entitlement logic. Purely informational/for support-debugging; nothing
+  // reads this to decide credits or access, only mandateStatus does.
+  razorpayStatus?: string;
   // Set once the one-time Rs.49 kundali payment is verified — lifetime access.
   kundaliUnlocked?: boolean;
   kundaliUnlockedAt?: FirebaseFirestore.Timestamp;
@@ -94,7 +104,12 @@ export interface UserProfileRecord {
 export interface SubscriptionCycleRecord {
   userId: string;
   planId: 'trial' | 'plus';
+  // App's own entitlement view — see the matching comment on
+  // UserProfileRecord.mandateStatus above.
   status: MandateStatus;
+  // Razorpay's own subscription.status, verbatim — see
+  // UserProfileRecord.razorpayStatus above.
+  razorpayStatus?: string;
   mandateMethod?: MandateMethod;
   registrationAmount?: number; // Rupees — the authorization amount at registration time
   lastPaymentId?: string;
