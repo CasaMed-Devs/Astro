@@ -63,7 +63,7 @@ export default function ProfileScreen() {
       <Pressable style={styles.menuRow} onPress={() => router.push(getPaywallRoute(profile))}>
         <Crown size={20} color={colors.primary} />
         <AppText variant="body" style={styles.menuLabel}>
-          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : 'Try Astro101 for Rs.1'}
+          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : 'Try Astro108 for Rs.1'}
         </AppText>
       </Pressable>
 

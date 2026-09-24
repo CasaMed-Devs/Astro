@@ -24,7 +24,7 @@ export function LoginPage() {
 
   return (
     <div className="login-wrap">
-      <h1>Astro101 Admin</h1>
+      <h1>Astro108 Admin</h1>
       {error ? <div className="error-banner">{error}</div> : null}
       <form className="card" onSubmit={handleSubmit}>
         <div className="field-row">

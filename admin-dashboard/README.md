@@ -1,4 +1,4 @@
-# Astro101 Admin Dashboard
+# Astro108 Admin Dashboard
 
 Standalone React + Vite admin app for managing astrologer pricing/order, paywall pricing, and
 looking up user accounts. Talks to the `functions/` backend's `/admin/*` API over a cookie

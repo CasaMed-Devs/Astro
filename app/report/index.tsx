@@ -203,7 +203,7 @@ export default function ReportScreen() {
     try {
       const order = await createReportOrder();
       const result = await openRazorpayCheckout(order, {
-        name: 'Astro101',
+        name: 'Astro108',
         description: 'Unlock your Janma Kundali',
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,

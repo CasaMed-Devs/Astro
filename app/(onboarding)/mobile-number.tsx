@@ -50,7 +50,7 @@ export default function MobileNumberScreen() {
           resizeMode="contain"
         />
         <AppText variant="wordmark" color={colors.primary}>
-          Astro101
+          Astro108
         </AppText>
       </View>
 

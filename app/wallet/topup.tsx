@@ -111,7 +111,7 @@ export default function TopUpScreen() {
     try {
       const order = await createTopUpOrder(amountRupees);
       const result = await openRazorpayCheckout(order, {
-        name: 'Astro101 wallet top-up',
+        name: 'Astro108 wallet top-up',
         description: `Add ${amountRupees} credits`,
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,

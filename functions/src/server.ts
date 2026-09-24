@@ -18,7 +18,7 @@ function getLanAddress(): string | null {
 }
 
 app.listen(env.port, () => {
-  console.log(`Astro101 backend listening on http://localhost:${env.port}`);
+  console.log(`Astro108 backend listening on http://localhost:${env.port}`);
 
   const lanAddress = getLanAddress();
   if (lanAddress) {

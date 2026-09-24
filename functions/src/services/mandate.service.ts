@@ -193,7 +193,7 @@ async function startNewMandateSubscription(
       ? {
           startAtSeconds: Math.floor((Date.now() + DAY_MS) / 1000),
           addonAmountRupees: trial.amount,
-          addonName: 'Astro101 Trial',
+          addonName: 'Astro108 Trial',
         }
       : undefined,
   );

@@ -42,7 +42,13 @@ export const MetaEvents = {
       logMock('SDK_INIT');
       return;
     }
-    getSettings().initializeSDK();
+    try {
+      getSettings().initializeSDK();
+    } catch (err) {
+      // Native SDK missing/unconfigured (e.g. stale dev build) — analytics must never crash the app.
+      // eslint-disable-next-line no-console
+      console.warn('[META] SDK init failed', err);
+    }
   },
 
   logCompleteRegistration(params: { method: 'phone_otp' }) {

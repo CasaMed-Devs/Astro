@@ -16,7 +16,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="topbar">
-        <h1>Astro101 Admin</h1>
+        <h1>Astro108 Admin</h1>
         <nav>
           <NavLink to="/astrologers" className={({ isActive }) => (isActive ? 'active' : '')}>
             Astrologers

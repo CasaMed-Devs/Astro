@@ -1,4 +1,4 @@
-# Astro101 — Backend & Database, Explained Simply
+# Astro108 — Backend & Database, Explained Simply
 
 This document explains how the "invisible" half of the app works: the backend server and the database. No code-reading required — everything here is in plain language, with the technical name mentioned alongside so you can search for it later if needed.
 

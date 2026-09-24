@@ -116,8 +116,8 @@ export default function UpgradeScreen() {
         MetaEvents.logInitiatedCheckout({ plan: 'subscription', amount, currency });
       }
       const result = await openRazorpaySubscriptionCheckout(subscription, {
-        name: 'Astro101',
-        description: 'Astro101 Plus subscription',
+        name: 'Astro108',
+        description: 'Astro108 Plus subscription',
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
         method: REGISTRATION_METHOD,
@@ -198,7 +198,7 @@ export default function UpgradeScreen() {
       <View style={styles.header}>
         <View style={styles.badge}>
           <Sparkles size={16} color={colors.primary} />
-          <AppText style={styles.badgeText}>ASTRO101 PLUS</AppText>
+          <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
         </View>
         <AppText style={styles.headline}>
           Keep talking, <AppText style={styles.headlineAccent}>pay less</AppText>
@@ -226,7 +226,7 @@ export default function UpgradeScreen() {
           {pricingReady ? (
             <>
               <View style={styles.priceCardCopy}>
-                <AppText style={styles.priceCardTitle}>Astro101 Plus</AppText>
+                <AppText style={styles.priceCardTitle}>Astro108 Plus</AppText>
                 <AppText style={styles.priceCardSubtitle}>Per month · Cancel anytime</AppText>
               </View>
               <AppText style={styles.priceValue}>

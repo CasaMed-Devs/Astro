@@ -1,20 +1,25 @@
 {
   "expo": {
-    "name": "Astro101",
+    "name": "Astro108",
     "slug": "astro101",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "astro101",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "package": "com.astro101",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#FEFCF3"
       },
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -23,6 +28,7 @@
     },
     "plugins": [
       "expo-router",
+      "@react-native-firebase/app",
       [
         "expo-splash-screen",
         {
@@ -32,13 +38,20 @@
         }
       ],
       "expo-system-ui",
-      ["expo-build-properties", { "android": { "useLegacyPackaging": false } }],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "useLegacyPackaging": false
+          }
+        }
+      ],
       [
         "react-native-fbsdk-next",
         {
           "appID": "4636056799964613",
           "clientToken": "7bc6810c4b06e7188e16d5ca28632a03",
-          "displayName": "Astro101",
+          "displayName": "Astro108",
           "scheme": "fb4636056799964613",
           "advertiserIDCollectionEnabled": true,
           "autoLogAppEventsEnabled": true,
@@ -49,6 +62,13 @@
     "experiments": {
       "typedRoutes": true,
       "newArchEnabled": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "95a5b00f-e9f4-46ad-8b92-2fc433453d59"
+      }
+    },
+    "owner": "devcasamed"
   }
 }

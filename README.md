@@ -1,4 +1,4 @@
-# Astro101
+# Astro108
 
 An AI-astrologer chat app built with React Native (Expo) + a Firebase-backed Node/Express API. Onboarding, birth-details, an AI kundali report, an astrologer/persona chat, and an Astro101 Plus subscription paywall — all built from the [Astro101 Figma design](https://www.figma.com/design/Wsv2rE8AswBECuWU5xSwxh/Astro101).
 

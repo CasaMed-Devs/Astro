@@ -77,7 +77,7 @@ function mapErrorResponse(status: number, payload: unknown): AppError {
   if (status === 402) {
     return new AppError(
       'credits/insufficient',
-      message ?? "You're out of free messages. Upgrade to Astro101 Plus to keep chatting.",
+      message ?? "You're out of free messages. Upgrade to Astro108 Plus to keep chatting.",
     );
   }
   if (status === 503) {

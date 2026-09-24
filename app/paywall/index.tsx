@@ -136,7 +136,7 @@ export default function PaywallScreen() {
         MetaEvents.logInitiatedCheckout({ plan: 'trial', amount: trialAmount, currency: trialCurrency });
       }
       const result = await openRazorpaySubscriptionCheckout(subscription, {
-        name: 'Astro101',
+        name: 'Astro108',
         description: 'Start your trial',
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
@@ -201,7 +201,7 @@ export default function PaywallScreen() {
       <View style={styles.header}>
         <View style={styles.badge}>
           <Sparkles size={16} color={colors.primary} />
-          <AppText style={styles.badgeText}>ASTRO101 PLUS</AppText>
+          <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
         </View>
         <AppText style={styles.headline}>
           Talk more, <AppText style={styles.headlineAccent}>pay less</AppText>

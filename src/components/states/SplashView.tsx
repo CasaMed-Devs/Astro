@@ -17,7 +17,7 @@ export function SplashView() {
         resizeMode="contain"
       />
       <AppText variant="wordmark" color={colors.primary} style={styles.appName}>
-        Astro101
+        Astro108
       </AppText>
     </View>
   );

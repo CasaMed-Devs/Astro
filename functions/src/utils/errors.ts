@@ -15,7 +15,7 @@ export class UnauthorizedError extends HttpError {
 }
 
 export class InsufficientCreditsError extends HttpError {
-  constructor(message = "You're out of free messages. Upgrade to Astro101 Plus to keep chatting.") {
+  constructor(message = "You're out of free messages. Upgrade to Astro108 Plus to keep chatting.") {
     super(402, message);
   }
 }

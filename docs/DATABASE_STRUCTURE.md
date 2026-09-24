@@ -1,4 +1,4 @@
-# Astro101 — Firestore Database Structure
+# Astro108 — Firestore Database Structure
 
 This documents the **actual current schema**, derived directly from `firestore.rules` and every `.collection(...)` call in `functions/src/`. It supersedes the "Database" section of `docs/BACKEND_AND_DATABASE.md`, which describes an earlier version of the chat architecture (see [§6 Known Inconsistencies](#6-known-inconsistencies--stale-references)).
 
