@@ -45,7 +45,7 @@ describe('sendOtp', () => {
 
 describe('confirmOtp', () => {
   it('verifies the code and starts a session on success', async () => {
-    mockApiClientPost.mockResolvedValueOnce({ token: 'jwt-1', uid: 'uid-1' });
+    mockApiClientPost.mockResolvedValueOnce({ token: 'jwt-1', uid: 'uid-1', isNewUser: true });
 
     const result = await confirmOtp('+919876543210', '123456', 'ident-1');
 
@@ -59,7 +59,12 @@ describe('confirmOtp', () => {
       uid: 'uid-1',
       phoneNumber: '+919876543210',
     });
-    expect(result).toEqual({ token: 'jwt-1', uid: 'uid-1', phoneNumber: '+919876543210' });
+    expect(result).toEqual({
+      token: 'jwt-1',
+      uid: 'uid-1',
+      phoneNumber: '+919876543210',
+      isNewUser: true,
+    });
   });
 
   it('wraps an invalid-code error into an AppError and does not start a session', async () => {

@@ -27,12 +27,13 @@ export async function sendOtp(req: Request, res: Response): Promise<void> {
   res.json({ sent: true, identificationToken, otp });
 }
 
-async function signInUser(phoneNumber: string): Promise<{ uid: string; token: string }> {
+async function signInUser(phoneNumber: string): Promise<{ uid: string; token: string; isNewUser: boolean }> {
   const uid = uidForPhoneNumber(phoneNumber);
   const userRef = adminFirestore().collection('users').doc(uid);
   const snapshot = await userRef.get();
+  const isNewUser = !snapshot.exists;
 
-  if (!snapshot.exists) {
+  if (isNewUser) {
     const userProfileId = await createUserProfile(uid);
     await userRef.set({
       uid,
@@ -45,15 +46,15 @@ async function signInUser(phoneNumber: string): Promise<{ uid: string; token: st
   }
 
   const token = createSessionToken({ uid, phoneNumber });
-  return { uid, token };
+  return { uid, token, isNewUser };
 }
 
 export async function verifyOtpAndSignIn(req: Request, res: Response): Promise<void> {
   const { phoneNumber, code, identificationToken } = verifyOtpSchema.parse(req.body);
   await pixyVerifyOtp(phoneNumber, identificationToken, code);
 
-  const { uid, token } = await signInUser(phoneNumber);
-  res.json({ token, uid });
+  const { uid, token, isNewUser } = await signInUser(phoneNumber);
+  res.json({ token, uid, isNewUser });
 }
 
 /**
@@ -64,6 +65,6 @@ export async function verifyOtpAndSignIn(req: Request, res: Response): Promise<v
  */
 export async function devLogin(_req: Request, res: Response): Promise<void> {
   const phoneNumber = env.devLogin.testPhoneNumber;
-  const { uid, token } = await signInUser(phoneNumber);
-  res.json({ token, uid, phoneNumber });
+  const { uid, token, isNewUser } = await signInUser(phoneNumber);
+  res.json({ token, uid, phoneNumber, isNewUser });
 }

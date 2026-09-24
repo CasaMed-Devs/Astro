@@ -25,21 +25,32 @@ export async function sendOtp(phoneNumber: string): Promise<SendOtpResult> {
   }
 }
 
-/** Verifies the OTP against the backend and, on success, starts a session. */
+/**
+ * Verifies the OTP against the backend and, on success, starts a session.
+ * `isNewUser` is the backend's own signal (a fresh `users/{uid}` doc was just
+ * created vs. one already existed) — not part of the persisted Session, since
+ * it's only meaningful for the exact login that produced it (e.g. gating a
+ * one-time CompleteRegistration event); a session restored on app relaunch
+ * must never look like a new registration again.
+ */
 export async function confirmOtp(
   phoneNumber: string,
   code: string,
   identificationToken: string,
-): Promise<Session> {
+): Promise<Session & { isNewUser: boolean }> {
   try {
-    const { token, uid } = await apiClient.post<{ token: string; uid: string }>('/auth/verify-otp', {
+    const { token, uid, isNewUser } = await apiClient.post<{
+      token: string;
+      uid: string;
+      isNewUser: boolean;
+    }>('/auth/verify-otp', {
       phoneNumber,
       code,
       identificationToken,
     });
     const session: Session = { token, uid, phoneNumber };
     await setSession(session);
-    return session;
+    return { ...session, isNewUser };
   } catch (error) {
     throw toAppError(error);
   }

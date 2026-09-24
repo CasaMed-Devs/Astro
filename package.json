@@ -59,6 +59,7 @@
     "lucide-react-native": "^1.45.0",
     "react": "19.2.3",
     "react-native": "^0.86.3",
+    "react-native-fbsdk-next": "^13.4.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-razorpay": "^3.0.0",
     "react-native-reanimated": "^4.5.1",
@@ -71,6 +72,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@react-native/jest-preset": "^0.86.3",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.2.4",
     "babel-preset-expo": "^57.0.12",

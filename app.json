@@ -32,7 +32,19 @@
         }
       ],
       "expo-system-ui",
-      ["expo-build-properties", { "android": { "useLegacyPackaging": false } }]
+      ["expo-build-properties", { "android": { "useLegacyPackaging": false } }],
+      [
+        "react-native-fbsdk-next",
+        {
+          "appID": "4636056799964613",
+          "clientToken": "7bc6810c4b06e7188e16d5ca28632a03",
+          "displayName": "Astro101",
+          "scheme": "fb4636056799964613",
+          "advertiserIDCollectionEnabled": true,
+          "autoLogAppEventsEnabled": true,
+          "isAutoInitEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
