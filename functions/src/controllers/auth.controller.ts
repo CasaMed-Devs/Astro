@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { adminFirestore } from '../config/firebase-admin';
 import { env } from '../config/env';
-import { pixyLogin, pixyVerifyOtp } from '../services/pixyAuth.service';
+import { PixyOtpInvalidError, pixyLogin, pixyVerifyOtp } from '../services/pixyAuth.service';
 import { createSessionToken } from '../services/token.service';
 import { createUserProfile } from '../services/userProfile.service';
 import { uidForPhoneNumber } from '../utils/uid';
@@ -21,8 +21,38 @@ const verifyOtpSchema = z.object({
   identificationToken: z.string().min(1),
 });
 
+const TEST_ACCOUNT_IDENTIFICATION_TOKEN = 'test-account';
+
+function isTestAccount(phoneNumber: string): boolean {
+  const { phoneNumber: testPhone, otp } = env.testAccount;
+  return Boolean(testPhone && otp && phoneNumber === testPhone);
+}
+
+/** Keeps the test account entitled: active mandate and at least the configured credits. */
+async function seedTestAccount(uid: string): Promise<void> {
+  const userRef = adminFirestore().collection('users').doc(uid);
+  await adminFirestore().runTransaction(async (tx) => {
+    const data = (await tx.get(userRef)).data() as { credits?: number } | undefined;
+    tx.set(
+      userRef,
+      {
+        credits: Math.max(data?.credits ?? 0, env.testAccount.credits),
+        mandateStatus: 'active',
+        razorpayStatus: 'active',
+        subscriptionActivatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  });
+}
+
 export async function sendOtp(req: Request, res: Response): Promise<void> {
   const { phoneNumber } = sendOtpSchema.parse(req.body);
+  if (isTestAccount(phoneNumber)) {
+    res.json({ sent: true, identificationToken: TEST_ACCOUNT_IDENTIFICATION_TOKEN, otp: env.testAccount.otp });
+    return;
+  }
   const { identificationToken, otp } = await pixyLogin(phoneNumber);
   res.json({ sent: true, identificationToken, otp });
 }
@@ -51,9 +81,19 @@ async function signInUser(phoneNumber: string): Promise<{ uid: string; token: st
 
 export async function verifyOtpAndSignIn(req: Request, res: Response): Promise<void> {
   const { phoneNumber, code, identificationToken } = verifyOtpSchema.parse(req.body);
-  await pixyVerifyOtp(phoneNumber, identificationToken, code);
+  const testAccount = isTestAccount(phoneNumber);
+  if (testAccount) {
+    if (code !== env.testAccount.otp) {
+      throw new PixyOtpInvalidError('Invalid OTP');
+    }
+  } else {
+    await pixyVerifyOtp(phoneNumber, identificationToken, code);
+  }
 
   const { uid, token, isNewUser } = await signInUser(phoneNumber);
+  if (testAccount) {
+    await seedTestAccount(uid);
+  }
   res.json({ token, uid, isNewUser });
 }
 

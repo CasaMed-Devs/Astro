@@ -85,6 +85,15 @@ export const env = {
     testPhoneNumber: process.env.DEV_LOGIN_PHONE ?? '+911234567890',
   },
 
+  // Fixed-OTP demo/review account (e.g. for store reviewers). Inactive unless
+  // BOTH TEST_ACCOUNT_PHONE and TEST_ACCOUNT_OTP are set. The account is
+  // seeded with an active mandate and at least `credits` credits on sign-in.
+  testAccount: {
+    phoneNumber: process.env.TEST_ACCOUNT_PHONE,
+    otp: process.env.TEST_ACCOUNT_OTP,
+    credits: Number(process.env.TEST_ACCOUNT_CREDITS ?? 1000),
+  },
+
   // All amounts in this file (reportPrice, topUp, trial/subscription, and the
   // Firestore-backed appConfig/paywallPricing doc they fall back to) are in
   // whole Rupees, not paise. Razorpay's API requires paise — that conversion
