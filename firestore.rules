@@ -60,6 +60,28 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Per-month invoice-number sequence — see
+    // functions/src/services/invoice.service.ts's assignInvoiceNumber.
+    match /counters/{counterId} {
+      allow read, write: if false;
+    }
+
+    // Why a user deleted their account; holds no phone number or uid — see
+    // functions/src/controllers/account.controller.ts.
+    match /accountDeletions/{deletionId} {
+      allow read, write: if false;
+    }
+
+    // Dashboard audit trail and its dated reset/expire queue — see
+    // functions/src/services/adminSubscription.service.ts.
+    match /adminLogs/{logId} {
+      allow read, write: if false;
+    }
+
+    match /adminScheduledActions/{actionId} {
+      allow read, write: if false;
+    }
+
     // Doc data also includes a `phoneNumber` field mirroring the doc ID —
     // see functions/src/services/report.service.ts.
     match /reports/{phoneNumber} {

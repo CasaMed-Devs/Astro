@@ -78,6 +78,63 @@ export interface MandateDetail {
   method: 'card' | 'upi' | null;
   trialCreditsClaimed: boolean;
   subscriptionId: string | null;
+  /** Set while an admin-given subscription is in force. */
+  adminGrantExpiresAt: string | null;
+}
+
+export interface GiveSubscriptionResult {
+  previousCredits: number;
+  addedCredits: number;
+  newCredits: number;
+  /** False when the user already had a paid subscription — then only the credits were added. */
+  subscriptionApplied: boolean;
+  validUntil: string;
+}
+
+/** Reset/Expire run right away for today's date, or are queued for a future one. */
+export type DatedActionResponse<Result> =
+  | { scheduled: false; result: Result }
+  | { scheduled: true; scheduledFor: string };
+
+export interface ResetSubscriptionResult {
+  previousStatus: string;
+  previousCredits: number;
+  autoDebitCancelled: boolean;
+}
+
+export interface ExpireSubscriptionResult {
+  previousStatus: string;
+  autoDebitCancelled: boolean;
+}
+
+export interface DisputeRecord {
+  id: string;
+  name: string | null;
+  phoneNumber: string;
+  subscriptionId: string | null;
+  subscriptionType: string;
+  createdAt: string | null;
+  /** Whole Rupees actually taken — 0 for a failed payment or an admin grant. */
+  paymentDeducted: number;
+  credits: number;
+  status: string;
+  failureReason: string | null;
+}
+
+export interface DisputeData {
+  user: { name: string | null; phoneNumber: string; credits: number; mandateStatus: string };
+  records: DisputeRecord[];
+}
+
+export interface AdminLog {
+  id: string;
+  action: string;
+  adminName: string;
+  phoneNumber: string;
+  outcome: 'success' | 'failed' | 'skipped';
+  details: Record<string, unknown>;
+  error: string | null;
+  createdAt?: string;
 }
 
 export interface UserDetail {
@@ -96,7 +153,8 @@ export interface UserDetail {
 }
 
 export const api = {
-  login: (password: string) => request<{ ok: true }>('/admin/login', { method: 'POST', body: { password } }),
+  login: (name: string, password: string) =>
+    request<{ ok: true }>('/admin/login', { method: 'POST', body: { name, password } }),
   logout: () => request<{ ok: true }>('/admin/logout', { method: 'POST' }),
   session: () => request<{ ok: true }>('/admin/session'),
 
@@ -110,4 +168,25 @@ export const api = {
 
   lookupUser: (phoneNumber: string) =>
     request<UserDetail>(`/admin/users/lookup?phoneNumber=${encodeURIComponent(phoneNumber)}`),
+  getDisputeData: (phoneNumber: string) =>
+    request<DisputeData>(`/admin/users/dispute?phoneNumber=${encodeURIComponent(phoneNumber)}`),
+
+  /** Dates are YYYY-MM-DD, read as calendar days in India (IST). */
+  giveSubscription: (phoneNumber: string, validUntil: string, credits: number) =>
+    request<GiveSubscriptionResult>('/admin/subscriptions/give', {
+      method: 'POST',
+      body: { phoneNumber, validUntil, credits },
+    }),
+  resetSubscription: (phoneNumber: string, date: string) =>
+    request<DatedActionResponse<ResetSubscriptionResult>>('/admin/subscriptions/reset', {
+      method: 'POST',
+      body: { phoneNumber, date },
+    }),
+  expireSubscription: (phoneNumber: string, date: string) =>
+    request<DatedActionResponse<ExpireSubscriptionResult>>('/admin/subscriptions/expire', {
+      method: 'POST',
+      body: { phoneNumber, date },
+    }),
+
+  listLogs: () => request<{ logs: AdminLog[] }>('/admin/logs'),
 };

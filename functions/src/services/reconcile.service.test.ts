@@ -118,6 +118,8 @@ jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async ()
 
 jest.mock('./mandate.service', () => ({ checkNewMandateStatus: jest.fn() }));
 
+jest.mock('./adminSubscription.service', () => ({ settleAdminActionsForUser: jest.fn(async () => undefined) }));
+
 import { adminFirestore } from '../config/firebase-admin';
 import { checkNewMandateStatus } from './mandate.service';
 import { fetchOrderPayments } from './razorpay.service';

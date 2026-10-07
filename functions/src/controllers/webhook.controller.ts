@@ -83,7 +83,11 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   const uid = notes?.uid;
   const purpose = notes?.purpose;
 
-  if (uid) {
+  // Deleting an account cancels its mandate (account.controller.ts), and
+  // Razorpay then reports that cancellation here — after the user doc is
+  // gone. The status sync below writes with merge, so without this check it
+  // would resurrect a blank users/{uid} doc for the deleted account.
+  if (uid && (await userExists(uid))) {
     switch (payload.event) {
       case 'payment.captured': {
         // Wallet top-ups and the kundali report unlock — the app's own
@@ -167,6 +171,10 @@ export async function handleRazorpayWebhook(req: Request, res: Response): Promis
   }
 
   res.status(200).json({ received: true });
+}
+
+async function userExists(uid: string): Promise<boolean> {
+  return (await adminFirestore().collection('users').doc(uid).get()).exists;
 }
 
 async function recoverNotesFromOrder(orderId: string): Promise<Record<string, string> | undefined> {

@@ -3,6 +3,8 @@ import { LoginPage } from './pages/LoginPage';
 import { AstrologersPage } from './pages/AstrologersPage';
 import { PricingPage } from './pages/PricingPage';
 import { UsersPage } from './pages/UsersPage';
+import { AccessSettingsPage } from './pages/AccessSettingsPage';
+import { ActivityLogPage } from './pages/ActivityLogPage';
 import { RequireAuth } from './components/RequireAuth';
 
 export default function App() {
@@ -31,6 +33,22 @@ export default function App() {
           element={
             <RequireAuth>
               <UsersPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/access"
+          element={
+            <RequireAuth>
+              <AccessSettingsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/activity"
+          element={
+            <RequireAuth>
+              <ActivityLogPage />
             </RequireAuth>
           }
         />

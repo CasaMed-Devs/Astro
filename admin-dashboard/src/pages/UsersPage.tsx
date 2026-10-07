@@ -39,11 +39,11 @@ export function UsersPage() {
       <div className="card">
         <h2>Look up a user</h2>
         <div className="field-row">
-          <label htmlFor="phone">Phone number (E.164, e.g. +919876543210)</label>
+          <label htmlFor="phone">Phone number (10 digits, or with country code like +919876543210)</label>
           <input
             type="text"
             id="phone"
-            placeholder="+919876543210"
+            placeholder="9876543210"
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -75,6 +75,7 @@ export function UsersPage() {
             <Row label="Method" value={user.mandate.method} />
             <Row label="Trial credits claimed" value={user.mandate.trialCreditsClaimed ? 'yes' : 'no'} />
             <Row label="Subscription id" value={user.mandate.subscriptionId} />
+            <Row label="Given by admin until" value={user.mandate.adminGrantExpiresAt} />
           </div>
         </>
       ) : null}

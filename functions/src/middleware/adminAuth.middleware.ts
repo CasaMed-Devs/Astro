@@ -30,7 +30,7 @@ export async function requireAdminAuth(
     const token = readCookie(req, ADMIN_SESSION_COOKIE);
     if (!token) throw new UnauthorizedError();
 
-    verifyAdminSessionToken(token);
+    req.adminName = verifyAdminSessionToken(token).name;
     next();
   } catch {
     next(new UnauthorizedError('Please sign in to the admin dashboard again.'));

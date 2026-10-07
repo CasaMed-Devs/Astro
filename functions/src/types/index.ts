@@ -30,7 +30,9 @@ export type MandateMethod = 'card' | 'upi';
  *                 exhausted.
  *   completed     every billing cycle (total_count) has been charged; the
  *                 subscription naturally ended.
- *   cancelled     mandate was cancelled (by the user or by Razorpay).
+ *   cancelled     mandate was cancelled (by the user, by Razorpay, or by an
+ *                 admin's "Expire Subscription"), or an admin-given
+ *                 subscription ran out.
  *   expired       registration abandoned (no payment) — reserved for a future
  *                 sweep mirroring paymentOrders' 7-day expiry; not yet written
  *                 by any code path today.
@@ -92,6 +94,18 @@ export interface UserProfileRecord {
   subscriptionActivatedAt?: FirebaseFirestore.Timestamp;
   lastTransactionId?: string; // transactions/{id}, the user's newest payment
   transactionCount?: number;
+  // Present only while an admin-given subscription is in force (dashboard's
+  // "Give Subscription" — see services/adminSubscription.service.ts). While
+  // it hasn't expired, a non-active Razorpay status never downgrades
+  // mandateStatus (see mandate.service.ts's updateNewMandateStatus); once
+  // expiresAt passes, the grant is removed and mandateStatus goes 'cancelled'.
+  adminSubscription?: AdminSubscriptionGrant;
+}
+
+export interface AdminSubscriptionGrant {
+  expiresAt: FirebaseFirestore.Timestamp;
+  grantedAt: FirebaseFirestore.Timestamp;
+  grantedBy: string;
 }
 
 /**
@@ -157,6 +171,8 @@ declare global {
   namespace Express {
     interface Request {
       uid?: string;
+      // Set by requireAdminAuth — the name the admin typed at dashboard login.
+      adminName?: string;
     }
   }
 }

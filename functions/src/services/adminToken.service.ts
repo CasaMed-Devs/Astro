@@ -5,6 +5,9 @@ import { HttpError } from '../utils/errors';
 
 export interface AdminSessionTokenPayload {
   role: 'admin';
+  // Who is signed in — everyone shares one password, so this self-declared
+  // name is what the audit log (adminLogs) records against each action.
+  name: string;
 }
 
 const ADMIN_SESSION_TTL = '12h';
@@ -28,8 +31,8 @@ function requireSecret(): string {
  * shape (`role: 'admin'`) is structurally distinct from a user token's
  * (`uid`, `phoneNumber`), so one can never be mistaken for the other.
  */
-export function createAdminSessionToken(): string {
-  const payload: AdminSessionTokenPayload = { role: 'admin' };
+export function createAdminSessionToken(name: string): string {
+  const payload: AdminSessionTokenPayload = { role: 'admin', name };
   return jwt.sign(payload, requireSecret(), { expiresIn: ADMIN_SESSION_TTL });
 }
 
@@ -38,5 +41,6 @@ export function verifyAdminSessionToken(token: string): AdminSessionTokenPayload
   if (typeof decoded !== 'object' || decoded.role !== 'admin') {
     throw new Error('Malformed admin session token payload.');
   }
-  return { role: 'admin' };
+  // Sessions issued before the name was added carry none.
+  return { role: 'admin', name: typeof decoded.name === 'string' ? decoded.name : 'unknown' };
 }

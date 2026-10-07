@@ -4,11 +4,14 @@ import {
   Crown,
   FileText,
   LogOut,
+  Mail,
   Pencil,
   Receipt,
+  ReceiptText,
   Settings,
   ShieldCheck,
   Trash2,
+  UserX,
   Wallet,
 } from 'lucide-react-native';
 
@@ -16,6 +19,7 @@ import { AppText } from '@/components/common/AppText';
 import { Card } from '@/components/cards/Card';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
+import { openSupportEmail } from '@/features/support/supportEmail';
 import { getPaywallRoute } from '@/utils/paywall';
 import { showErrorToast } from '@/utils/toast';
 import { colors, radii, spacing } from '@/constants/theme';
@@ -81,6 +85,20 @@ export default function ProfileScreen() {
         </AppText>
       </Pressable>
 
+      <Pressable style={styles.menuRow} onPress={() => router.push('/invoices')}>
+        <ReceiptText size={20} color={colors.textSecondary} />
+        <AppText variant="body" style={styles.menuLabel}>
+          Invoices
+        </AppText>
+      </Pressable>
+
+      <Pressable style={styles.menuRow} onPress={() => openSupportEmail(profile?.phoneNumber)}>
+        <Mail size={20} color={colors.textSecondary} />
+        <AppText variant="body" style={styles.menuLabel}>
+          Support
+        </AppText>
+      </Pressable>
+
       <Pressable style={styles.menuRow} onPress={() => Linking.openURL(TERMS_URL)}>
         <FileText size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>
@@ -113,6 +131,13 @@ export default function ProfileScreen() {
         <LogOut size={20} color={colors.danger} />
         <AppText variant="body" color={colors.danger} style={styles.menuLabel}>
           Log out
+        </AppText>
+      </Pressable>
+
+      <Pressable style={styles.menuRow} onPress={() => router.push('/account/delete')}>
+        <UserX size={20} color={colors.danger} />
+        <AppText variant="body" color={colors.danger} style={styles.menuLabel}>
+          Delete account
         </AppText>
       </Pressable>
     </Screen>

@@ -16,3 +16,4 @@ const app = createApp();
 export const api = onRequest({ region: 'asia-south1' }, app);
 
 export { onUserCreated } from './triggers/onUserCreated';
+export { adminActionsSweep } from './triggers/adminActionsSweep';

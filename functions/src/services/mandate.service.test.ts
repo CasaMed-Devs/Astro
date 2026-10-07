@@ -238,6 +238,46 @@ describe('checkNewMandateStatus', () => {
     expect(store.users.uid1.credits).toBe(5); // unchanged
   });
 
+  it('keeps a user with an unexpired admin-given subscription active when Razorpay reports a dead mandate', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: {
+        uid1: {
+          phoneNumber: '+911234567890',
+          credits: 5,
+          subscriptionId: 'sub_8',
+          mandateStatus: 'active',
+          adminSubscription: { expiresAt: Timestamp.fromMillis(Date.now() + 60_000) },
+        },
+      },
+      subscriptions: { sub_8: { userId: 'uid1', planId: 'trial', status: 'cancelled' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const razorpayService = await import('./razorpay.service');
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'cancelled' });
+    const { checkNewMandateStatus } = await import('./mandate.service');
+
+    const status = await checkNewMandateStatus('uid1', 'sub_8');
+
+    expect(status).toBe('active');
+    expect(store.users.uid1.mandateStatus).toBe('active');
+  });
+
+  it("ignores a status event for a cycle that is no longer the user's current one", async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, mandateStatus: 'none' } },
+      subscriptions: { sub_9: { userId: 'uid1', planId: 'plus', status: 'active' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { updateNewMandateStatus } = await import('./mandate.service');
+
+    await updateNewMandateStatus('uid1', 'sub_9', 'cancelled', 'cancelled');
+
+    expect(store.users.uid1.mandateStatus).toBe('none');
+    expect(store.subscriptions.sub_9.status).toBe('cancelled');
+  });
+
   it('throws if the subscription does not belong to the caller', async () => {
     const { db } = makeFakeFirestore({
       users: { uid1: { phoneNumber: '+911234567890', credits: 0 } },

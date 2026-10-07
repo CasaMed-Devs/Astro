@@ -6,6 +6,7 @@ import { recordKundaliPayment } from '../controllers/payment.controller';
 import { creditWallet } from './credits.service';
 import { recordTransaction, type TransactionVia } from './transactions.service';
 import { checkNewMandateStatus } from './mandate.service';
+import { settleAdminActionsForUser } from './adminSubscription.service';
 import type { PaymentOrderPurpose } from './paymentOrders.service';
 import { fetchOrderPayments, paiseToRupees, type OrderPayment } from './razorpay.service';
 import type { MandateStatus, UserProfileRecord } from '../types';
@@ -96,6 +97,14 @@ export interface ReconcileResult {
  */
 export async function reconcilePayments(uid: string): Promise<ReconcileResult> {
   const db = adminFirestore();
+
+  // First apply any dashboard action that has come due for this user (a
+  // scheduled reset/expiry, an admin-given subscription running out), so the
+  // status read below already reflects it. Never allowed to block payment
+  // reconciliation itself.
+  await settleAdminActionsForUser(uid).catch((error) => {
+    console.warn(`[reconcile] Could not settle admin actions for ${uid}`, error);
+  });
 
   const userSnapshot = await db.collection('users').doc(uid).get();
   const user = userSnapshot.data() as UserProfileRecord | undefined;

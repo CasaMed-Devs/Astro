@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
-export function Layout({ children }: { children: ReactNode }) {
+/** `wide` gives table-heavy pages (dispute data, activity log) room to breathe. */
+export function Layout({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -27,10 +28,16 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/users" className={({ isActive }) => (isActive ? 'active' : '')}>
             Users
           </NavLink>
+          <NavLink to="/access" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Access settings
+          </NavLink>
+          <NavLink to="/activity" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Activity log
+          </NavLink>
         </nav>
         <button onClick={handleLogout}>Sign out</button>
       </div>
-      <div className="container">{children}</div>
+      <div className={wide ? 'container wide' : 'container'}>{children}</div>
     </>
   );
 }

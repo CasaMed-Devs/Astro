@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppText } from '@/components/common/AppText';
 import { colors, gradients, radii, spacing } from '@/constants/theme';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 type ButtonProps = {
   label: string;
@@ -26,14 +26,13 @@ export function Button({
   testID,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  const contentColor =
+    variant === 'primary' || variant === 'danger' ? colors.onGradientText : colors.primary;
 
   const content = loading ? (
-    <ActivityIndicator color={variant === 'primary' ? colors.onGradientText : colors.primary} />
+    <ActivityIndicator color={contentColor} />
   ) : (
-    <AppText
-      variant="buttonLabel"
-      color={variant === 'primary' ? colors.onGradientText : colors.primary}
-    >
+    <AppText variant="buttonLabel" color={contentColor}>
       {label}
     </AppText>
   );
@@ -58,12 +57,7 @@ export function Button({
       onPress={onPress}
       disabled={isDisabled}
       testID={testID}
-      style={[
-        styles.base,
-        variant === 'secondary' ? styles.secondary : styles.ghost,
-        isDisabled && styles.disabled,
-        style,
-      ]}
+      style={[styles.base, styles[variant], isDisabled && styles.disabled, style]}
     >
       {content}
     </Pressable>
@@ -85,6 +79,9 @@ const styles = StyleSheet.create({
   },
   ghost: {
     backgroundColor: 'transparent',
+  },
+  danger: {
+    backgroundColor: colors.danger,
   },
   disabled: {
     opacity: 0.5,

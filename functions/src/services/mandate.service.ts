@@ -331,12 +331,79 @@ export async function updateNewMandateStatus(
   subscriptionId: string,
   status: MandateStatus,
   razorpayStatus: string,
-): Promise<void> {
+): Promise<MandateStatus> {
   await updateCurrentSubscription(uid, { status, razorpayStatus }, subscriptionId);
-  await adminFirestore().collection('users').doc(uid).set(
+
+  const userRef = adminFirestore().collection('users').doc(uid);
+  const user = (await userRef.get()).data() as UserProfileRecord | undefined;
+
+  // An event for a cycle the user is no longer on (e.g. Razorpay's
+  // subscription.cancelled arriving after an admin reset cleared the
+  // pointer) only updates that cycle's own doc above, never the user.
+  if (user && user.subscriptionId !== subscriptionId) {
+    return user.mandateStatus ?? 'none';
+  }
+
+  // An admin-given subscription that hasn't run out keeps the user entitled
+  // whatever Razorpay says about their (old or abandoned) mandate.
+  if (status !== 'active' && hasLiveAdminGrant(user)) {
+    await userRef.set({ razorpayStatus, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return 'active';
+  }
+
+  await userRef.set(
     { mandateStatus: status, razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
     { merge: true },
   );
+  return status;
+}
+
+/** True while an admin-given subscription (dashboard "Give Subscription") is still in force. */
+export function hasLiveAdminGrant(user: UserProfileRecord | undefined): boolean {
+  const expiresAt = user?.adminSubscription?.expiresAt;
+  return Boolean(expiresAt && expiresAt.toMillis() > Date.now());
+}
+
+// Razorpay statuses where a mandate is authorised and can still be charged.
+const CHARGEABLE_SUBSCRIPTION_STATUSES = new Set(['authenticated', 'active', 'pending', 'halted']);
+
+/**
+ * Admin-initiated stop of a user's auto-debit (dashboard "Expire" / "Reset
+ * Subscription"). Cancels immediately at Razorpay when the mandate can still
+ * be charged — a failure there throws, so the caller never marks a user
+ * expired while Razorpay keeps billing them. Only touches the cycle doc; the
+ * caller owns what the user doc becomes. Returns Razorpay's resulting status.
+ */
+export async function stopMandateForAdmin(uid: string, subscriptionId: string): Promise<string> {
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
+  if (!cycleSnapshot.exists || cycleSnapshot.data()?.userId !== uid) {
+    throw new ValidationError('This subscription does not belong to this account.');
+  }
+
+  let razorpayStatus: string = (await fetchSubscription(subscriptionId)).status;
+
+  if (CHARGEABLE_SUBSCRIPTION_STATUSES.has(razorpayStatus)) {
+    razorpayStatus = (await cancelRazorpaySubscription(subscriptionId, false)).status;
+  } else if (razorpayStatus === 'created') {
+    // Checkout was never completed, so there is nothing to charge — tidy it
+    // up at Razorpay if it lets us, but don't block the admin action on it.
+    try {
+      razorpayStatus = (await cancelRazorpaySubscription(subscriptionId, false)).status;
+    } catch (error) {
+      console.warn(`[mandate] Could not cancel unpaid subscription ${subscriptionId}`, error);
+    }
+  }
+
+  if (CHARGEABLE_SUBSCRIPTION_STATUSES.has(razorpayStatus)) {
+    throw new ValidationError('Razorpay did not cancel the auto-debit. Nothing was changed — please try again.');
+  }
+
+  await updateCurrentSubscription(
+    uid,
+    { status: razorpayStatus === 'completed' ? 'completed' : 'cancelled', razorpayStatus },
+    subscriptionId,
+  );
+  return razorpayStatus;
 }
 
 /**
@@ -474,8 +541,7 @@ export async function checkNewMandateStatus(uid: string, subscriptionId: string)
       // Razorpay says entitled, but no invoice/payment is visible yet
       // (can lag briefly) — sync status only and let the next check credit
       // it once the payment is actually queryable.
-      await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
-      return subscription.status as MandateStatus;
+      return updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
     }
     await applyNewMandateEntitlement(uid, subscriptionId, firstPayment.paymentId, subscription.status, {
       via: 'reconciliation',
@@ -483,8 +549,9 @@ export async function checkNewMandateStatus(uid: string, subscriptionId: string)
     return 'active';
   }
 
-  await updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
-  return subscription.status as MandateStatus;
+  // The user's resulting status, which can differ from Razorpay's own while
+  // an admin-given subscription is in force — see updateNewMandateStatus.
+  return updateNewMandateStatus(uid, subscriptionId, subscription.status as MandateStatus, subscription.status);
 }
 
 /** Cancels a mandate — `cancelAtCycleEnd` keeps access live until the current period ends. */

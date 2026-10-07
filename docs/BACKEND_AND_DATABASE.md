@@ -44,7 +44,8 @@ The backend is a small web server (built with a tool called **Express**, written
 | Start a report payment | `POST /payments/report/order` | Logged-in users only | Same idea, but for the one-time kundali report purchase |
 | Confirm a report payment | `POST /payments/report/verify` | Logged-in users only | Verifies payment, then triggers the AI to actually write the report |
 | Razorpay tells us what happened | `POST /webhooks/razorpay` | Razorpay's own servers | Razorpay calls this automatically when a subscription renews, gets cancelled, or a payment fails |
-| Delete my account | `POST /account/delete` | Logged-in users only | Wipes your data from the database and deletes your login |
+| My invoices | `GET /invoices` | Logged-in users only | Lists a tax invoice (with GST split and invoice number) for each trial and monthly subscription payment |
+| Delete my account | `POST /account/delete` | Logged-in users only | Cancels any live Razorpay auto-debit first, then wipes your data from the database and records the reason you gave (without your number) |
 
 **"Logged-in users only"** means the phone has to prove who it is by sending a security token (like showing an ID card) with every request. That token is a JWT the backend itself issues after verifying an SMS OTP (sent via voicenSMS) — not a Firebase login — and the backend checks that token itself before doing anything.
 

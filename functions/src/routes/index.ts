@@ -22,6 +22,7 @@ import {
 } from '../controllers/payment.controller';
 import { reconcilePaymentsHandler } from '../controllers/reconcile.controller';
 import { deleteAccount } from '../controllers/account.controller';
+import { getMyInvoices } from '../controllers/invoice.controller';
 import { devLogin, sendOtp, verifyOtpAndSignIn } from '../controllers/auth.controller';
 import { getMe, updateBirthDetails, updateDisplayName } from '../controllers/user.controller';
 import { getMyReport, getMyMandate, generateReport } from '../controllers/status.controller';
@@ -74,6 +75,8 @@ router.get('/payments/history', requireAuth, asyncHandler(getTopUpHistory));
 router.post('/payments/topup/order', requireAuth, asyncHandler(createTopUpOrder));
 router.post('/payments/topup/verify', requireAuth, asyncHandler(verifyTopUpPayment));
 router.post('/payments/reconcile', requireAuth, asyncHandler(reconcilePaymentsHandler));
+
+router.get('/invoices', requireAuth, asyncHandler(getMyInvoices));
 
 router.post('/account/delete', requireAuth, asyncHandler(deleteAccount));
 

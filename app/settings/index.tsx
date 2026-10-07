@@ -1,45 +1,14 @@
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, View } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft, Bell, FileText, ShieldCheck, Trash2 } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Screen } from '@/components/common/Screen';
-import { useAuth } from '@/features/auth/context/AuthProvider';
-import { deleteAccount } from '@/services/account.service';
 import { colors, radii, spacing } from '@/constants/theme';
-import { AppError } from '@/utils/errors';
 
 export default function SettingsScreen() {
-  const { signOut } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDeleteAccount = async () => {
-    setDeleting(true);
-    try {
-      await deleteAccount();
-      await signOut();
-    } catch (err) {
-      Alert.alert(
-        'Could not delete account',
-        err instanceof AppError ? err.message : 'Please try again in a moment.',
-      );
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const confirmDeleteAccount = () => {
-    Alert.alert(
-      'Delete account',
-      'This permanently deletes your account and chat history. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: handleDeleteAccount },
-      ],
-    );
-  };
 
   return (
     <Screen scroll>
@@ -80,10 +49,10 @@ export default function SettingsScreen() {
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.row} onPress={confirmDeleteAccount} disabled={deleting}>
+      <Pressable style={styles.row} onPress={() => router.push('/account/delete')}>
         <Trash2 size={20} color={colors.danger} />
         <AppText variant="body" color={colors.danger} style={styles.rowLabel}>
-          {deleting ? 'Deleting...' : 'Delete account'}
+          Delete account
         </AppText>
       </Pressable>
     </Screen>
