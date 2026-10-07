@@ -45,7 +45,7 @@ export default function ChatScreen() {
     context?: string;
     initialMessage?: string;
   }>();
-  const { profile } = useAuth();
+  const { profile, syncCredits } = useAuth();
   const [persona, setPersona] = useState<AstrologerProfile | null>(null);
   const [messages, setMessages] = useState<ChatMessageDoc[]>([]);
   // Our own outgoing message + the in-progress reveal of the astrologer's
@@ -62,6 +62,12 @@ export default function ChatScreen() {
   // No session/time window — access is purely "do you have credits."
   // remainingCredits comes from the server after each message/list fetch.
   const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+
+  // Home, Profile and the wallet all show the balance from the shared
+  // profile, so pass every balance the server reports here on to it.
+  useEffect(() => {
+    if (remainingCredits != null) syncCredits(remainingCredits);
+  }, [remainingCredits, syncCredits]);
   const listRef = useRef<FlatList>(null);
   const extraContext = useRef(parseContext(context)).current;
   const insets = useSafeAreaInsets();

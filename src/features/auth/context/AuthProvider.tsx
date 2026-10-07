@@ -1,6 +1,7 @@
 import {
   createContext,
   PropsWithChildren,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -26,6 +27,9 @@ interface AuthContextValue {
   // False from sign-in until the first profile fetch settles (success or failure).
   profileReady: boolean;
   refreshProfile: () => Promise<void>;
+  // Applies a balance the server just reported (e.g. after a chat message)
+  // without a full profile round-trip.
+  syncCredits: (credits: number) => void;
   signOut: () => Promise<void>;
 }
 
@@ -67,6 +71,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const syncCredits = useCallback((credits: number) => {
+    setProfile((prev) => (prev && prev.credits !== credits ? { ...prev, credits } : prev));
+  }, []);
+
   useEffect(() => {
     if (!session) return;
     fetchProfile();
@@ -104,7 +112,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     reconcile();
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') reconcile();
+      // Always re-read the profile on return, even when reconcile is
+      // throttled or finds nothing: credits and subscription state also
+      // change from outside this device (a renewal, an admin grant).
+      if (nextState === 'active') reconcile().then(fetchProfile);
     });
     return () => subscription.remove();
   }, [session]);
@@ -119,9 +130,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         profile?.dateOfBirth && profile?.timeOfBirth && profile?.placeOfBirth,
       ),
       refreshProfile: fetchProfile,
+      syncCredits,
       signOut: endSession,
     }),
-    [status, session, profile, profileReady],
+    [status, session, profile, profileReady, syncCredits],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
