@@ -89,6 +89,8 @@ export interface GiveSubscriptionResult {
   /** False when the user already had a paid subscription — then only the credits were added. */
   subscriptionApplied: boolean;
   validUntil: string;
+  /** Whether this grant also unlocked the kundali report. */
+  kundaliUnlocked: boolean;
 }
 
 /** Reset/Expire run right away for today's date, or are queued for a future one. */
@@ -149,6 +151,8 @@ export interface UserDetail {
   createdAt?: string;
   updatedAt?: string;
   mandate: MandateDetail;
+  /** Whether the user can already open the kundali report (paid for it, given by an admin, or generated earlier). */
+  kundaliUnlocked: boolean;
   report: { status: string; generatedAt?: string } | null;
 }
 
@@ -172,10 +176,10 @@ export const api = {
     request<DisputeData>(`/admin/users/dispute?phoneNumber=${encodeURIComponent(phoneNumber)}`),
 
   /** Dates are YYYY-MM-DD, read as calendar days in India (IST). */
-  giveSubscription: (phoneNumber: string, validUntil: string, credits: number) =>
+  giveSubscription: (phoneNumber: string, validUntil: string, credits: number, unlockKundali: boolean) =>
     request<GiveSubscriptionResult>('/admin/subscriptions/give', {
       method: 'POST',
-      body: { phoneNumber, validUntil, credits },
+      body: { phoneNumber, validUntil, credits, unlockKundali },
     }),
   resetSubscription: (phoneNumber: string, date: string) =>
     request<DatedActionResponse<ResetSubscriptionResult>>('/admin/subscriptions/reset', {

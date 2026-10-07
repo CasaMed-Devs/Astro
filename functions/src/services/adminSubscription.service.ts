@@ -81,6 +81,8 @@ export interface GiveSubscriptionResult {
   /** False when the user already had a paid subscription — then only the credits were added. */
   subscriptionApplied: boolean;
   validUntil: string;
+  /** Whether this grant also unlocked the kundali report. */
+  kundaliUnlocked: boolean;
 }
 
 /**
@@ -88,12 +90,18 @@ export interface GiveSubscriptionResult {
  * that lasts until `expiresAt`. A user's own paid (Razorpay) subscription is
  * never touched: they just get the credits. Giving again to a user who
  * already holds an admin subscription replaces its end date.
+ *
+ * `unlockKundali` also opens the kundali report — the same lifetime unlock
+ * the one-time payment gives (see report.service.ts's isKundaliUnlocked), so
+ * it does not end with the subscription. Leaving it off never takes an
+ * existing unlock away.
  */
 export async function giveSubscription(
   uid: string,
   expiresAt: Date,
   credits: number,
   adminName: string,
+  unlockKundali = false,
 ): Promise<GiveSubscriptionResult> {
   const validUntil = expiresAt.toISOString();
 
@@ -125,6 +133,9 @@ export async function giveSubscription(
               ...(user.mandateStatus === 'active' ? {} : { subscriptionActivatedAt: FieldValue.serverTimestamp() }),
             }
           : {}),
+        ...(unlockKundali && !user.kundaliUnlocked
+          ? { kundaliUnlocked: true, kundaliUnlockedAt: FieldValue.serverTimestamp() }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
 
@@ -148,6 +159,7 @@ export async function giveSubscription(
         grantedBy: adminName,
         subscriptionApplied,
         validUntil: subscriptionApplied ? Timestamp.fromDate(expiresAt) : null,
+        kundaliUnlocked: unlockKundali,
         failureReason: null,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -159,6 +171,7 @@ export async function giveSubscription(
         newCredits: previousCredits + credits,
         subscriptionApplied,
         validUntil,
+        kundaliUnlocked: unlockKundali,
       };
     });
   });

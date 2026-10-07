@@ -29,6 +29,7 @@ const giveSchema = z.object({
     .int('Credits must be a whole number.')
     .min(0, 'Credits cannot be negative.')
     .max(MAX_CREDITS_PER_GRANT, `Credits cannot be more than ${MAX_CREDITS_PER_GRANT} at a time.`),
+  unlockKundali: z.boolean().optional(),
 });
 
 const datedActionSchema = z.object({
@@ -41,7 +42,7 @@ function adminNameOf(req: Request): string {
 }
 
 export async function give(req: Request, res: Response): Promise<void> {
-  const { phoneNumber, validUntil, credits } = parseAdminInput(giveSchema, req.body);
+  const { phoneNumber, validUntil, credits, unlockKundali } = parseAdminInput(giveSchema, req.body);
   if (validUntil < todayInIst()) {
     throw new ValidationError('The valid-until date cannot be in the past.');
   }
@@ -51,6 +52,7 @@ export async function give(req: Request, res: Response): Promise<void> {
     endOfIstDay(validUntil),
     credits,
     adminNameOf(req),
+    unlockKundali,
   );
   res.json(result);
 }

@@ -50,6 +50,8 @@ async function fetchUserDetail(uid: string) {
       // Set while an admin-given subscription is in force.
       adminGrantExpiresAt: serializeTimestamp(user.adminSubscription?.expiresAt) ?? null,
     },
+    // Same rule as report.service.ts's isKundaliUnlocked.
+    kundaliUnlocked: Boolean(user.kundaliUnlocked || report?.kundali),
     report: report
       ? {
           status: report.status,

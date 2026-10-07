@@ -158,6 +158,18 @@ describe('giveSubscription', () => {
     expect(store.users[UID].adminSubscription).toBeUndefined();
   });
 
+  it('unlocks the kundali report only when asked to', async () => {
+    const store = setup({ users: { [UID]: { credits: 0, mandateStatus: 'none' } } });
+
+    const withoutKundali = await giveSubscription(UID, NEXT_MONTH, 10, 'Asha');
+    expect(withoutKundali.kundaliUnlocked).toBe(false);
+    expect(store.users[UID].kundaliUnlocked).toBeUndefined();
+
+    const withKundali = await giveSubscription(UID, NEXT_MONTH, 10, 'Asha', true);
+    expect(withKundali.kundaliUnlocked).toBe(true);
+    expect(store.users[UID].kundaliUnlocked).toBe(true);
+  });
+
   it('rejects an unknown user and logs the failure', async () => {
     const store = setup({ users: {} });
 

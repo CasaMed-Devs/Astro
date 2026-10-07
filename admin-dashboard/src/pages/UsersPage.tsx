@@ -66,6 +66,7 @@ export function UsersPage() {
             <Row label="Time of birth" value={user.timeOfBirth} />
             <Row label="Place of birth" value={user.placeOfBirth} />
             <Row label="Credits" value={user.credits} />
+            <Row label="Kundali access" value={user.kundaliUnlocked ? 'yes' : 'no'} />
             <Row label="Report status" value={user.report ? user.report.status : 'none'} />
             <Row label="Created" value={user.createdAt} />
           </div>

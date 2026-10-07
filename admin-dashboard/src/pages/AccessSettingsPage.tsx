@@ -24,6 +24,7 @@ interface ActionInput {
   phoneNumber: string;
   date: string;
   credits: number;
+  unlockKundali: boolean;
 }
 
 /**
@@ -36,6 +37,7 @@ function SubscriptionActionForm({
   hint,
   dateLabel,
   withCredits = false,
+  withKundali = false,
   danger = false,
   describe,
   run,
@@ -44,6 +46,8 @@ function SubscriptionActionForm({
   hint: string;
   dateLabel: string;
   withCredits?: boolean;
+  /** Shows the "allow kundali report" checkbox. */
+  withKundali?: boolean;
   danger?: boolean;
   /** Plain-language lines telling the admin what Confirm will do to this user. */
   describe: (user: UserDetail, input: ActionInput) => string[];
@@ -53,11 +57,12 @@ function SubscriptionActionForm({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [date, setDate] = useState('');
   const [credits, setCredits] = useState('');
+  const [unlockKundali, setUnlockKundali] = useState(false);
   const [pendingUser, setPendingUser] = useState<UserDetail | null>(null);
   const [banner, setBanner] = useState<Banner>(null);
   const [busy, setBusy] = useState(false);
 
-  const input: ActionInput = { phoneNumber: phoneNumber.trim(), date, credits: Number(credits) };
+  const input: ActionInput = { phoneNumber: phoneNumber.trim(), date, credits: Number(credits), unlockKundali };
 
   const validate = (): string | null => {
     if (!input.phoneNumber) return 'User number is required.';
@@ -96,6 +101,7 @@ function SubscriptionActionForm({
       setPhoneNumber('');
       setDate('');
       setCredits('');
+      setUnlockKundali(false);
     } catch (err) {
       setBanner({ kind: 'error', lines: [errorText(err)] });
     } finally {
@@ -144,6 +150,17 @@ function SubscriptionActionForm({
             </div>
           ) : null}
         </div>
+        {withKundali ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={unlockKundali}
+              disabled={pendingUser !== null}
+              onChange={(e) => setUnlockKundali(e.target.checked)}
+            />
+            Allow Kundali report access
+          </label>
+        ) : null}
         <p className="hint">{hint}</p>
 
         {pendingUser ? (
@@ -196,15 +213,23 @@ const isToday = (date: string) => date === todayInputValue();
 const hasPaidSubscription = (user: UserDetail) =>
   user.mandate.status === 'active' && !user.mandate.adminGrantExpiresAt;
 
+function describeKundali(user: UserDetail, unlockKundali: boolean): string {
+  if (user.kundaliUnlocked) return 'Kundali report: this user already has access.';
+  return unlockKundali
+    ? 'Kundali report will be unlocked for this user, permanently.'
+    : 'Kundali report stays locked.';
+}
+
 function GiveSubscription() {
   return (
     <SubscriptionActionForm
       title="Give subscription"
       dateLabel="Valid until"
       withCredits
-      hint="The subscription stays active until the end of this date (India time), then turns off by itself. Credits are added on top of what the user already has."
-      describe={(user, { date, credits }) =>
-        hasPaidSubscription(user)
+      withKundali
+      hint="The subscription stays active until the end of this date (India time), then turns off by itself. Credits are added on top of what the user already has. Kundali report access, once given, is permanent and does not end with the subscription."
+      describe={(user, { date, credits, unlockKundali }) => [
+        ...(hasPaidSubscription(user)
           ? [
               'This user already has a paid subscription, so it will not be changed.',
               `Only credits will be added: ${user.credits} + ${credits} = ${user.credits + credits}.`,
@@ -212,10 +237,11 @@ function GiveSubscription() {
           : [
               `Subscription will be active until ${formatInputDate(date)}.`,
               `Credits: ${user.credits} + ${credits} = ${user.credits + credits}.`,
-            ]
-      }
-      run={async ({ phoneNumber, date, credits }) => {
-        const result = await api.giveSubscription(phoneNumber, date, credits);
+            ]),
+        describeKundali(user, unlockKundali),
+      ]}
+      run={async ({ phoneNumber, date, credits, unlockKundali }) => {
+        const result = await api.giveSubscription(phoneNumber, date, credits, unlockKundali);
         return [
           result.subscriptionApplied
             ? 'Subscription successfully activated for the user.'
@@ -223,6 +249,7 @@ function GiveSubscription() {
           `Previous balance: ${result.previousCredits} credits`,
           `Added credits: +${result.addedCredits} credits`,
           `New balance: ${result.newCredits} credits`,
+          ...(result.kundaliUnlocked ? ['Kundali report access given.'] : []),
         ];
       }}
     />
