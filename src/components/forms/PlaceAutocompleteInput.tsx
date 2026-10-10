@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/common/AppText';
+import { useScrollIntoView } from '@/components/common/Screen';
 import { Input } from '@/components/forms/Input';
 import { colors, radii, spacing } from '@/constants/theme';
 import { searchPlaces, resolvePlace, type PlaceSuggestion } from '@/services/places.service';
 import type { ResolvedBirthPlace } from '@/validation/birthDetails';
 
 const DEBOUNCE_MS = 350;
+// Room left above the field when it scrolls into view, so its label stays visible.
+const SCROLL_TOP_OFFSET = 40;
 
 interface PlaceAutocompleteInputProps {
   value: string;
@@ -28,6 +31,22 @@ export function PlaceAutocompleteInput({
   const [resolving, setResolving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
+  const containerRef = useRef<View>(null);
+  const focusedRef = useRef(false);
+  const scrollIntoView = useScrollIntoView();
+
+  // Moves the field to the top of the screen so the suggestions open in the
+  // space above the keyboard instead of underneath it.
+  const revealSuggestions = () => scrollIntoView(containerRef.current, SCROLL_TOP_OFFSET);
+
+  // On focus the keyboard is still sliding up and the scroll area hasn't
+  // shrunk yet, so scroll once it has finished showing.
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidShow', () => {
+      if (focusedRef.current) scrollIntoView(containerRef.current, SCROLL_TOP_OFFSET);
+    });
+    return () => subscription.remove();
+  }, [scrollIntoView]);
 
   useEffect(() => {
     return () => {
@@ -89,17 +108,26 @@ export function PlaceAutocompleteInput({
   };
 
   return (
-    <View>
+    <View ref={containerRef} collapsable={false}>
       <Input
         value={value}
         onChangeText={handleChangeText}
+        onFocus={() => {
+          focusedRef.current = true;
+          revealSuggestions();
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+        }}
         placeholder="Start typing a city..."
         rightAccessory={
-          searching || resolving ? <ActivityIndicator size="small" color={colors.primary} /> : undefined
+          searching || resolving ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : undefined
         }
       />
       {suggestions.length > 0 ? (
-        <View style={styles.dropdown}>
+        <View style={styles.dropdown} onLayout={revealSuggestions}>
           {suggestions.map((suggestion) => (
             <Pressable
               key={suggestion.placeId}

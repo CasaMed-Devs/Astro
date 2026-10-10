@@ -1,4 +1,5 @@
-import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Crown,
@@ -17,23 +18,24 @@ import {
 
 import { AppText } from '@/components/common/AppText';
 import { Card } from '@/components/cards/Card';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { openSupportEmail } from '@/features/support/supportEmail';
 import { getPaywallRoute } from '@/utils/paywall';
 import { showErrorToast } from '@/utils/toast';
+import type { LegalDocId } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
 
-const PRIVACY_POLICY_URL = 'https://houseoftech-legal.web.app/astro108/privacy';
-const TERMS_URL = 'https://houseoftech-legal.web.app/astro108/terms';
-const PAYMENT_CANCELLATION_URL =
-  'https://houseoftech-legal.web.app/astro108/payment-cancellation';
-const DELETE_ACCOUNT_POLICY_URL = 'https://houseoftech-legal.web.app/astro108/delete-account';
+const openLegalDoc = (doc: LegalDocId) =>
+  router.push({ pathname: '/legal/[doc]', params: { doc } });
 
 export default function ProfileScreen() {
   const { profile, signOut } = useAuth();
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
 
   const handleSignOut = () => {
+    setConfirmingLogout(false);
     showErrorToast('Successfully logout');
     signOut();
   };
@@ -99,35 +101,35 @@ export default function ProfileScreen() {
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={() => Linking.openURL(TERMS_URL)}>
+      <Pressable style={styles.menuRow} onPress={() => openLegalDoc('terms')}>
         <FileText size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>
           Terms and conditions
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+      <Pressable style={styles.menuRow} onPress={() => openLegalDoc('privacy')}>
         <ShieldCheck size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>
           Privacy policy
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={() => Linking.openURL(PAYMENT_CANCELLATION_URL)}>
+      <Pressable style={styles.menuRow} onPress={() => openLegalDoc('payment-cancellation')}>
         <Receipt size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>
           Payment and cancellation policy
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={() => Linking.openURL(DELETE_ACCOUNT_POLICY_URL)}>
+      <Pressable style={styles.menuRow} onPress={() => openLegalDoc('delete-account')}>
         <Trash2 size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.menuLabel}>
           Account deletion policy
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.menuRow} onPress={handleSignOut}>
+      <Pressable style={styles.menuRow} onPress={() => setConfirmingLogout(true)}>
         <LogOut size={20} color={colors.danger} />
         <AppText variant="body" color={colors.danger} style={styles.menuLabel}>
           Log out
@@ -140,6 +142,16 @@ export default function ProfileScreen() {
           Delete account
         </AppText>
       </Pressable>
+
+      <ConfirmDialog
+        visible={confirmingLogout}
+        title="Log out?"
+        message="Are you sure you want to log out? You will need your mobile number and an OTP to sign in again."
+        confirmLabel="Log out"
+        destructive
+        onConfirm={handleSignOut}
+        onCancel={() => setConfirmingLogout(false)}
+      />
     </Screen>
   );
 }

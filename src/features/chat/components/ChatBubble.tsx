@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { colors, radii, spacing } from '@/constants/theme';
@@ -18,6 +18,20 @@ function formatMetaValue(value: unknown): string | null {
   return String(value);
 }
 
+// The astrologer's replies mark bold with *text* (or **text**) — render those
+// spans as real bold text instead of showing the asterisks.
+function renderBold(text: string) {
+  return text.split(/(\*{1,2}[^*\n]+\*{1,2})/g).map((part, index) => {
+    const match = part.match(/^(\*{1,2})([^*\n]+)\1$/);
+    if (!match) return part;
+    return (
+      <Text key={index} style={styles.bold}>
+        {match[2]}
+      </Text>
+    );
+  });
+}
+
 export function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.sender === 'user';
   const timing = formatMetaValue(message.meta?.timing);
@@ -27,7 +41,7 @@ export function ChatBubble({ message }: ChatBubbleProps) {
     <View style={[styles.row, isUser ? styles.rowEnd : styles.rowStart]}>
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAstrologer]}>
         <AppText variant="body" color={isUser ? colors.onGradientText : colors.textPrimary}>
-          {message.text}
+          {isUser ? message.text : renderBold(message.text)}
         </AppText>
       </View>
       {!isUser && (timing || remedy) ? (
@@ -49,6 +63,7 @@ export function ChatBubble({ message }: ChatBubbleProps) {
 }
 
 const styles = StyleSheet.create({
+  bold: { fontWeight: '700' },
   row: { marginVertical: 4 },
   rowStart: { alignItems: 'flex-start' },
   rowEnd: { alignItems: 'flex-end' },

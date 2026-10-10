@@ -11,6 +11,10 @@ import { sendOtp } from '@/services/auth.service';
 import { colors, spacing } from '@/constants/theme';
 import { isValidIndianMobileNumber, toE164 } from '@/validation/phone';
 import { AppError } from '@/utils/errors';
+import type { LegalDocId } from '@/constants/legal';
+
+const openLegalDoc = (doc: LegalDocId) =>
+  router.push({ pathname: '/legal/[doc]', params: { doc } });
 
 export default function MobileNumberScreen() {
   const [localNumber, setLocalNumber] = useState('');
@@ -91,8 +95,25 @@ export default function MobileNumberScreen() {
           testID="send-otp-button"
         />
         <AppText variant="caption" color={colors.textSecondary} style={styles.terms}>
-          By continuing you agree to our Terms and Privacy Policy. Consultations are for guidance
-          purposes only.
+          By continuing you agree to our{' '}
+          <AppText
+            variant="caption"
+            color={colors.primary}
+            style={styles.link}
+            onPress={() => openLegalDoc('terms')}
+          >
+            Terms
+          </AppText>{' '}
+          and{' '}
+          <AppText
+            variant="caption"
+            color={colors.primary}
+            style={styles.link}
+            onPress={() => openLegalDoc('privacy')}
+          >
+            Privacy Policy
+          </AppText>
+          . Consultations are for guidance purposes only.
         </AppText>
       </View>
     </Screen>
@@ -106,4 +127,5 @@ const styles = StyleSheet.create({
   field: { gap: spacing.sm, marginTop: spacing.xxl },
   footer: { marginTop: 'auto', marginBottom: spacing.xl, gap: spacing.md },
   terms: { textAlign: 'center' },
+  link: { textDecorationLine: 'underline' },
 });

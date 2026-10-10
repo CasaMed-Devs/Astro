@@ -35,14 +35,20 @@ export default function SettingsScreen() {
         />
       </View>
 
-      <Pressable style={styles.row}>
+      <Pressable
+        style={styles.row}
+        onPress={() => router.push({ pathname: '/legal/[doc]', params: { doc: 'terms' } })}
+      >
         <FileText size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.rowLabel}>
           Terms of service
         </AppText>
       </Pressable>
 
-      <Pressable style={styles.row}>
+      <Pressable
+        style={styles.row}
+        onPress={() => router.push({ pathname: '/legal/[doc]', params: { doc: 'privacy' } })}
+      >
         <ShieldCheck size={20} color={colors.textSecondary} />
         <AppText variant="body" style={styles.rowLabel}>
           Privacy policy

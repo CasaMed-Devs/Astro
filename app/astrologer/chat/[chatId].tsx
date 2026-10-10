@@ -17,6 +17,7 @@ import { AppText } from '@/components/common/AppText';
 import { Input } from '@/components/forms/Input';
 import { Screen } from '@/components/common/Screen';
 import { ChatBubble } from '@/features/chat/components/ChatBubble';
+import { TypingIndicator } from '@/features/chat/components/TypingIndicator';
 import { EmptyView } from '@/components/states/EmptyView';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
@@ -52,7 +53,7 @@ export default function ChatScreen() {
   // reply, kept out of `messages` so the background poll (which replaces
   // `messages` wholesale every few seconds) can't wipe them out before the
   // server has caught up and persisted them.
-  const [localMessages, setLocalMessages] = useState<ChatMessageDoc[]>([]);
+  const [localMessages, setLocalMessages] = useState<(ChatMessageDoc & { fullReply?: string })[]>([]);
   const [oldestSeq, setOldestSeq] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -62,6 +63,11 @@ export default function ChatScreen() {
   // No session/time window — access is purely "do you have credits."
   // remainingCredits comes from the server after each message/list fetch.
   const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Home, Profile and the wallet all show the balance from the shared
   // profile, so pass every balance the server reports here on to it.
@@ -115,7 +121,7 @@ export default function ChatScreen() {
       // Drop local echoes now that the server has persisted the matching message.
       setLocalMessages((prev) =>
         prev.filter(
-          (local) => !fetched.some((m) => m.sender === local.sender && m.text === local.text),
+          (local) => !fetched.some((m) => m.sender === local.sender && (m.text === local.text || (local.fullReply && m.text === local.fullReply))),
         ),
       );
       if (credits != null) setRemainingCredits(credits);
@@ -139,19 +145,25 @@ export default function ChatScreen() {
     }
   };
 
-  const revealParagraphs = (paragraphs: string[]) => {
+  const revealParagraphs = (paragraphs: string[], fullReply: string) => {
     paragraphs.forEach((paragraph, index) => {
       setTimeout(() => {
-        setLocalMessages((prev) => [
-          ...prev,
-          {
-            id: `local-${Date.now()}-${index}`,
-            sender: 'astrologer',
-            text: paragraph,
-            createdAt: new Date().toISOString(),
-            status: 'delivered',
-          },
-        ]);
+        setLocalMessages((prev) => {
+          if (messagesRef.current.some((m) => m.sender === 'astrologer' && (m.text === paragraph || m.text === fullReply))) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: `local-${Date.now()}-${index}`,
+              sender: 'astrologer',
+              text: paragraph,
+              fullReply,
+              createdAt: new Date().toISOString(),
+              status: 'delivered',
+            },
+          ];
+        });
         if (index === paragraphs.length - 1) {
           setSending(false);
         }
@@ -182,7 +194,10 @@ export default function ChatScreen() {
     try {
       const result = await sendUserMessage(chatId, personaId, text, extraContext);
       setRemainingCredits(result.remainingCredits);
-      revealParagraphs(result.paragraphs.length > 0 ? result.paragraphs : [result.reply]);
+      revealParagraphs(
+        result.paragraphs.length > 0 ? result.paragraphs : [result.reply],
+        result.reply
+      );
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m.id !== localId));
       const appError = err instanceof AppError ? err : null;
@@ -198,7 +213,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <Screen padded={false} edges={['top', 'bottom']}>
+    <Screen padded={false} edges={['top', 'bottom']} avoidKeyboard={false}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <ArrowLeft size={20} color={colors.textPrimary} />
@@ -223,7 +238,12 @@ export default function ChatScreen() {
         <FlatList
           ref={listRef}
           style={styles.flex}
-          data={[...messages, ...localMessages]}
+          data={[
+            ...messages,
+            ...localMessages.filter(
+              (local) => !messages.some((m) => m.sender === local.sender && (m.text === local.text || (local.fullReply && m.text === local.fullReply)))
+            ),
+          ]}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
           renderItem={({ item }) => <ChatBubble message={item} />}
@@ -257,6 +277,7 @@ export default function ChatScreen() {
               />
             )
           }
+          ListFooterComponent={sending ? <TypingIndicator /> : null}
         />
 
         {error ? (
@@ -333,9 +354,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.xl,
   },
-  composerInput: { flex: 1, minHeight: 48 },
+  composerInput: { flex: 1, minHeight: 58 },
   sendButton: {
     width: 44,
     height: 44,
