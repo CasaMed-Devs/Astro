@@ -13,20 +13,25 @@ import type { TransactionPurpose } from './transactions.service';
 import { NotFoundError } from '../utils/errors';
 import type { UserProfileRecord } from '../types';
 
-export type InvoiceType = 'trial' | 'monthly';
+export type InvoiceType = 'trial' | 'monthly' | 'topup' | 'report';
 
-// Only subscription payments are invoiced in the app; wallet top-ups and the
-// kundali unlock are deliberately absent from this map.
+// Every paid transaction purpose gets its own invoice type, so a wallet
+// top-up or a kundali unlock is billed under its own description instead of
+// falling out of the list (or inheriting whatever type came before it).
 const INVOICE_TYPE_BY_PURPOSE: Partial<Record<TransactionPurpose, InvoiceType>> = {
   trial: 'trial',
   subscription: 'monthly',
   direct_subscription: 'monthly',
   autodebit: 'monthly',
+  topup: 'topup',
+  report: 'report',
 };
 
 const INVOICE_DESCRIPTION: Record<InvoiceType, string> = {
   trial: 'Trial Subscription',
   monthly: 'Monthly Subscription',
+  topup: 'Wallet Top-up',
+  report: 'Kundali Report Unlock',
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -93,6 +98,8 @@ export function formatInvoiceNumber(monthKey: string, sequence: number): string 
 
 export function computeBillingPeriodEnd(type: InvoiceType, start: Date): Date {
   if (type === 'trial') return new Date(start.getTime() + TRIAL_PERIOD_DAYS * DAY_MS);
+  // One-off purchases (credits, report unlock) bill a single instant, not a cycle.
+  if (type !== 'monthly') return new Date(start.getTime());
 
   const end = new Date(start.getTime());
   end.setUTCMonth(end.getUTCMonth() + 1);
@@ -147,61 +154,111 @@ interface StoredTransaction {
   paymentMethod?: string | null;
   invoiceNumber?: string;
   createdAt?: Timestamp;
+  creditsAwarded?: number;
 }
 
-/** The signed-in user's subscription invoices (trial + monthly), newest first. */
-export async function listInvoices(uid: string): Promise<Invoice[]> {
+/** "Wallet Top-up (100 credits)" for a top-up; the plain type description otherwise. */
+function describeInvoice(type: InvoiceType, creditsAwarded?: number): string {
+  if (type === 'topup' && creditsAwarded) {
+    return `${INVOICE_DESCRIPTION[type]} (${creditsAwarded} credits)`;
+  }
+  return INVOICE_DESCRIPTION[type];
+}
+
+/** `undefined` when this transaction isn't one that gets billed (unpaid, zero-value, or not a purpose we invoice). */
+function invoicableEntry(
+  id: string,
+  data: StoredTransaction,
+): { id: string; data: StoredTransaction; type: InvoiceType; paidAt: Date; amount: number } | undefined {
+  const type = data.purpose ? INVOICE_TYPE_BY_PURPOSE[data.purpose] : undefined;
+  const paidAt = data.createdAt?.toDate?.();
+  const amount = Number(data.amount ?? 0);
+  if (!type || !paidAt || data.status !== 'paid' || amount <= 0) return undefined;
+  return { id, data, type, paidAt, amount };
+}
+
+async function buildInvoice(
+  entry: { id: string; data: StoredTransaction; type: InvoiceType; paidAt: Date; amount: number },
+  customer: { name: string | null; phoneNumber: string },
+): Promise<Invoice> {
+  const { id, data, type, paidAt, amount } = entry;
+  const invoiceNumber = data.invoiceNumber ?? (await assignInvoiceNumber(id, paidAt));
+  return {
+    id,
+    invoiceNumber,
+    type,
+    description: describeInvoice(type, data.creditsAwarded),
+    status: 'paid',
+    paymentId: id,
+    subscriptionId: data.subscriptionId ?? null,
+    paymentMethod: data.paymentMethod ?? null,
+    paidAt: paidAt.toISOString(),
+    periodStart: paidAt.toISOString(),
+    periodEnd: computeBillingPeriodEnd(type, paidAt).toISOString(),
+    currency: data.currency ?? 'INR',
+    amount,
+    ...computeGstBreakdown(amount),
+    halfGstRatePercent: INVOICE_HALF_GST_RATE_PERCENT,
+    customer,
+    appName: INVOICE_APP_NAME,
+    sac: INVOICE_SAC,
+    seller: INVOICE_SELLER,
+  };
+}
+
+async function customerOf(uid: string): Promise<{ name: string | null; phoneNumber: string }> {
   const db = adminFirestore();
-  // Filtered and sorted in memory rather than in the query: a user only ever
-  // has a handful of transactions, and this way no composite index is needed.
-  const [userSnapshot, transactionsSnapshot] = await Promise.all([
-    db.collection('users').doc(uid).get(),
-    db.collection('transactions').where('userId', '==', uid).get(),
-  ]);
+  const userSnapshot = await db.collection('users').doc(uid).get();
   if (!userSnapshot.exists) throw new NotFoundError('User profile not found.');
 
   const user = userSnapshot.data() as UserProfileRecord;
   const profile = user.userProfileId ? await getUserProfile(user.userProfileId) : undefined;
-  const customer = { name: profile?.name?.trim() || null, phoneNumber: user.phoneNumber ?? uid };
+  return { name: profile?.name?.trim() || null, phoneNumber: user.phoneNumber ?? uid };
+}
+
+/** The signed-in user's paid invoices (trial, monthly, top-ups, report unlocks), newest first. */
+export async function listInvoices(uid: string): Promise<Invoice[]> {
+  const db = adminFirestore();
+  // Filtered and sorted in memory rather than in the query: a user only ever
+  // has a handful of transactions, and this way no composite index is needed.
+  const [customer, transactionsSnapshot] = await Promise.all([
+    customerOf(uid),
+    db.collection('transactions').where('userId', '==', uid).get(),
+  ]);
 
   const billable = transactionsSnapshot.docs
-    .map((doc) => {
-      const data = doc.data() as StoredTransaction;
-      const type = data.purpose ? INVOICE_TYPE_BY_PURPOSE[data.purpose] : undefined;
-      const paidAt = data.createdAt?.toDate?.();
-      const amount = Number(data.amount ?? 0);
-      if (!type || !paidAt || data.status !== 'paid' || amount <= 0) return null;
-      return { id: doc.id, data, type, paidAt, amount };
-    })
-    .filter((entry) => entry !== null)
+    .map((doc) => invoicableEntry(doc.id, doc.data() as StoredTransaction))
+    .filter((entry) => entry !== undefined)
     .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
 
   const invoices: Invoice[] = [];
   // Sequential and oldest-first so a user's numbers follow their payment order.
-  for (const { id, data, type, paidAt, amount } of billable) {
-    const invoiceNumber = data.invoiceNumber ?? (await assignInvoiceNumber(id, paidAt));
-    invoices.push({
-      id,
-      invoiceNumber,
-      type,
-      description: INVOICE_DESCRIPTION[type],
-      status: 'paid',
-      paymentId: id,
-      subscriptionId: data.subscriptionId ?? null,
-      paymentMethod: data.paymentMethod ?? null,
-      paidAt: paidAt.toISOString(),
-      periodStart: paidAt.toISOString(),
-      periodEnd: computeBillingPeriodEnd(type, paidAt).toISOString(),
-      currency: data.currency ?? 'INR',
-      amount,
-      ...computeGstBreakdown(amount),
-      halfGstRatePercent: INVOICE_HALF_GST_RATE_PERCENT,
-      customer,
-      appName: INVOICE_APP_NAME,
-      sac: INVOICE_SAC,
-      seller: INVOICE_SELLER,
-    });
+  for (const entry of billable) {
+    invoices.push(await buildInvoice(entry, customer));
   }
 
   return invoices.reverse();
+}
+
+/**
+ * The one invoice for a specific transaction, for support to pull up during a
+ * payment dispute. `undefined` when that transaction was never billed (a
+ * failed payment, or an admin-given grant — see dispute data's own listing
+ * for those).
+ */
+export async function getInvoiceForTransaction(uid: string, transactionId: string): Promise<Invoice | undefined> {
+  const db = adminFirestore();
+  const [customer, txSnapshot] = await Promise.all([
+    customerOf(uid),
+    db.collection('transactions').doc(transactionId).get(),
+  ]);
+  if (!txSnapshot.exists) return undefined;
+
+  const data = txSnapshot.data() as StoredTransaction & { userId?: string };
+  if (data.userId !== uid) return undefined;
+
+  const entry = invoicableEntry(transactionId, data);
+  if (!entry) return undefined;
+
+  return buildInvoice(entry, customer);
 }

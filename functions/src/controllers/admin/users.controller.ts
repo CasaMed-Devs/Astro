@@ -4,7 +4,9 @@ import { z } from 'zod';
 
 import { adminFirestore } from '../../config/firebase-admin';
 import { getUserProfile } from '../../services/userProfile.service';
+import { getInvoiceForTransaction } from '../../services/invoice.service';
 import { parseAdminInput, phoneNumberSchema } from '../../utils/adminInput';
+import { buildInvoiceHtml } from '../../utils/invoiceHtml';
 import { NotFoundError } from '../../utils/errors';
 import { uidForPhoneNumber } from '../../utils/uid';
 import type { ReportRecord, UserProfileRecord } from '../../types';
@@ -134,4 +136,25 @@ export async function getDisputeData(req: Request, res: Response): Promise<void>
 export async function getUserByUid(req: Request, res: Response): Promise<void> {
   const { uid } = req.params;
   res.json(await fetchUserDetail(uid));
+}
+
+const disputeInvoiceQuerySchema = z.object({
+  phoneNumber: phoneNumberSchema,
+  transactionId: z.string().min(1),
+});
+
+/**
+ * The exact tax invoice for one of a user's transactions/{id} rows, rendered
+ * the same way the app itself would — for support to pull up during a
+ * payment dispute. 404 for a row that was never billed (a failed payment or
+ * an admin-given grant); dispute data's own listing already explains those.
+ */
+export async function downloadDisputeInvoice(req: Request, res: Response): Promise<void> {
+  const { phoneNumber, transactionId } = parseAdminInput(disputeInvoiceQuerySchema, req.query);
+  const uid = uidForPhoneNumber(phoneNumber);
+
+  const invoice = await getInvoiceForTransaction(uid, transactionId);
+  if (!invoice) throw new NotFoundError('No invoice exists for this payment.');
+
+  res.set('Content-Type', 'text/html').send(buildInvoiceHtml(invoice));
 }

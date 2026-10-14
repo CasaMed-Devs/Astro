@@ -30,6 +30,22 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
+/** Like request(), but for an endpoint that returns the invoice as an HTML page rather than JSON. */
+async function requestHtml(path: string): Promise<string> {
+  const response = await fetch(`${API_URL}${path}`, { credentials: 'include' });
+
+  if (response.status === 401) {
+    throw new ApiError('Not signed in');
+  }
+  if (!response.ok) {
+    const isJson = response.headers.get('content-type')?.includes('application/json');
+    const payload = isJson ? await response.json() : null;
+    throw new ApiError((payload && payload.message) || `Request failed (${response.status})`);
+  }
+
+  return response.text();
+}
+
 export interface Astrologer {
   id: string;
   name: string;
@@ -174,6 +190,11 @@ export const api = {
     request<UserDetail>(`/admin/users/lookup?phoneNumber=${encodeURIComponent(phoneNumber)}`),
   getDisputeData: (phoneNumber: string) =>
     request<DisputeData>(`/admin/users/dispute?phoneNumber=${encodeURIComponent(phoneNumber)}`),
+  /** The rendered tax invoice HTML for one dispute record — undefined when that payment was never invoiced. */
+  getDisputeInvoiceHtml: (phoneNumber: string, transactionId: string) =>
+    requestHtml(
+      `/admin/users/dispute/invoice?phoneNumber=${encodeURIComponent(phoneNumber)}&transactionId=${encodeURIComponent(transactionId)}`,
+    ),
 
   /** Dates are YYYY-MM-DD, read as calendar days in India (IST). */
   giveSubscription: (phoneNumber: string, validUntil: string, credits: number, unlockKundali: boolean) =>

@@ -8,7 +8,12 @@ import {
   updateAstrologerOrder,
 } from '../controllers/admin/astrologers.controller';
 import { getPricing, updatePricing } from '../controllers/admin/pricing.controller';
-import { getDisputeData, getUserByUid, lookupUserByPhone } from '../controllers/admin/users.controller';
+import {
+  downloadDisputeInvoice,
+  getDisputeData,
+  getUserByUid,
+  lookupUserByPhone,
+} from '../controllers/admin/users.controller';
 import { expire, give, reset } from '../controllers/admin/subscriptions.controller';
 import { listLogs } from '../controllers/admin/logs.controller';
 
@@ -26,6 +31,7 @@ adminRouter.put('/pricing', requireAdminAuth, asyncHandler(updatePricing));
 
 adminRouter.get('/users/lookup', requireAdminAuth, asyncHandler(lookupUserByPhone));
 adminRouter.get('/users/dispute', requireAdminAuth, asyncHandler(getDisputeData));
+adminRouter.get('/users/dispute/invoice', requireAdminAuth, asyncHandler(downloadDisputeInvoice));
 adminRouter.get('/users/:uid', requireAdminAuth, asyncHandler(getUserByUid));
 
 adminRouter.post('/subscriptions/give', requireAdminAuth, asyncHandler(give));

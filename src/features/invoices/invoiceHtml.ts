@@ -88,12 +88,18 @@ export function buildInvoiceHtml(invoice: Invoice): string {
   const paidOn = formatInvoiceDate(invoice.paidAt);
   const gstRate = `${invoice.halfGstRatePercent}%`;
 
+  // A one-off purchase (credits, report unlock) has no billing cycle, so its
+  // period collapses to a single instant — skip the line rather than show
+  // the same date twice.
+  const periodStart = formatInvoiceDate(invoice.periodStart);
+  const periodEnd = formatInvoiceDate(invoice.periodEnd);
+
   const itemLines = [
     invoice.subscriptionId
       ? `Razorpay Subscription ID: ${escapeHtml(invoice.subscriptionId)}`
       : null,
     `Payment ID: ${escapeHtml(invoice.paymentId)}`,
-    `Period ${formatInvoiceDate(invoice.periodStart)} &ndash; ${formatInvoiceDate(invoice.periodEnd)}`,
+    periodStart === periodEnd ? null : `Period ${periodStart} &ndash; ${periodEnd}`,
     `SAC ${invoice.sac.code} &middot; ${escapeHtml(invoice.sac.description)}`,
   ].filter((line) => line !== null);
 

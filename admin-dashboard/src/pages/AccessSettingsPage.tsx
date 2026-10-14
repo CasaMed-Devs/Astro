@@ -310,11 +310,32 @@ function ExpireSubscription() {
   );
 }
 
+/** A row's payment only has an invoice when real money moved for it — matches the backend's own rule. */
+const isInvoiceable = (record: DisputeData['records'][number]) =>
+  record.status === 'paid' && record.paymentDeducted > 0;
+
 function DisputeDataView() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [data, setData] = useState<DisputeData | null>(null);
   const [banner, setBanner] = useState<Banner>(null);
   const [loading, setLoading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownloadInvoice = async (recordId: string) => {
+    if (!phoneNumber.trim()) return;
+    setBanner(null);
+    setDownloadingId(recordId);
+    try {
+      const html = await api.getDisputeInvoiceHtml(phoneNumber.trim(), recordId);
+      const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      const opened = window.open(blobUrl, '_blank');
+      if (!opened) setBanner({ kind: 'error', lines: ['Please allow pop-ups to view the invoice.'] });
+    } catch (err) {
+      setBanner({ kind: 'error', lines: [errorText(err)] });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const handleSubmit = async () => {
     setBanner(null);
@@ -380,6 +401,7 @@ function DisputeDataView() {
                     <th className="num">Payment deducted</th>
                     <th className="num">Credits</th>
                     <th>Status</th>
+                    <th>Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -395,6 +417,19 @@ function DisputeDataView() {
                       <td className="num">{record.credits}</td>
                       <td className={record.status === 'failed' ? 'failed' : ''} title={record.failureReason ?? undefined}>
                         {record.status}
+                      </td>
+                      <td>
+                        {isInvoiceable(record) ? (
+                          <button
+                            className="small"
+                            onClick={() => handleDownloadInvoice(record.id)}
+                            disabled={downloadingId === record.id}
+                          >
+                            {downloadingId === record.id ? 'Opening…' : 'View invoice'}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   ))}

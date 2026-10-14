@@ -1,7 +1,7 @@
 import { apiClient } from '@/services/apiClient';
 import { toAppError } from '@/utils/errors';
 
-export type InvoiceType = 'trial' | 'monthly';
+export type InvoiceType = 'trial' | 'monthly' | 'topup' | 'report';
 
 // Mirrors functions/src/services/invoice.service.ts's Invoice — kept in sync
 // by hand, like the types in src/types/firestore.ts.
@@ -38,7 +38,7 @@ export interface Invoice {
   };
 }
 
-/** The signed-in user's subscription invoices (trial + monthly), newest first. */
+/** The signed-in user's paid invoices (trial, monthly, top-ups, report unlocks), newest first. */
 export async function getInvoices(): Promise<Invoice[]> {
   try {
     const { invoices } = await apiClient.get<{ invoices: Invoice[] }>('/invoices');
