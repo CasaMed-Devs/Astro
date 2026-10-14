@@ -15,6 +15,7 @@ import {
   lookupUserByPhone,
 } from '../controllers/admin/users.controller';
 import { expire, give, reset } from '../controllers/admin/subscriptions.controller';
+import { deleteUserAccount, previewDeletion } from '../controllers/admin/accountDeletion.controller';
 import { listLogs } from '../controllers/admin/logs.controller';
 
 export const adminRouter = Router();
@@ -32,6 +33,8 @@ adminRouter.put('/pricing', requireAdminAuth, asyncHandler(updatePricing));
 adminRouter.get('/users/lookup', requireAdminAuth, asyncHandler(lookupUserByPhone));
 adminRouter.get('/users/dispute', requireAdminAuth, asyncHandler(getDisputeData));
 adminRouter.get('/users/dispute/invoice', requireAdminAuth, asyncHandler(downloadDisputeInvoice));
+adminRouter.get('/users/deletion-preview', requireAdminAuth, asyncHandler(previewDeletion));
+adminRouter.post('/users/delete', requireAdminAuth, asyncHandler(deleteUserAccount));
 adminRouter.get('/users/:uid', requireAdminAuth, asyncHandler(getUserByUid));
 
 adminRouter.post('/subscriptions/give', requireAdminAuth, asyncHandler(give));

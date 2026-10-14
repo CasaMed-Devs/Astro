@@ -25,10 +25,11 @@ export async function login(req: Request, res: Response): Promise<void> {
   if (password !== env.admin.password) throw new UnauthorizedError('Incorrect password.');
 
   const token = createAdminSessionToken(name);
-  // The admin dashboard is a separate origin now, so the cookie needs
-  // SameSite=None (+ Secure, which it requires) to be sent on its
-  // cross-origin fetch calls at all. Browsers treat http://localhost as a
-  // secure context, so this still works for local dev over plain HTTP.
+  // In production the dashboard calls the API on its own origin (firebase.json
+  // rewrites /admin/** to this function), so the cookie is first-party. Local
+  // dev is still cross-origin (Vite on :5174, API on :3000), which needs
+  // SameSite=None (+ Secure, which it requires); browsers treat
+  // http://localhost as a secure context, so that works over plain HTTP.
   res.cookie(ADMIN_SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'none',

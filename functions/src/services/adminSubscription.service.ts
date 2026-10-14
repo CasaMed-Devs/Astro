@@ -27,7 +27,8 @@ export type AdminAction =
   | 'reset_subscription'
   | 'schedule_expire'
   | 'schedule_reset'
-  | 'grant_expired';
+  | 'grant_expired'
+  | 'delete_account';
 
 export interface AdminLogInput {
   action: AdminAction;
@@ -56,7 +57,7 @@ export async function writeAdminLog(input: AdminLogInput): Promise<void> {
 }
 
 /** Runs an admin action and records how it went, whichever way it went. */
-async function logged<Result extends object>(
+export async function logged<Result extends object>(
   input: Omit<AdminLogInput, 'outcome' | 'details' | 'error'> & { details?: Record<string, unknown> },
   run: () => Promise<Result>,
 ): Promise<Result> {

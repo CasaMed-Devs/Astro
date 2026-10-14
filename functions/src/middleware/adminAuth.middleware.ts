@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 import { verifyAdminSessionToken } from '../services/adminToken.service';
 import { UnauthorizedError } from '../utils/errors';
 
-export const ADMIN_SESSION_COOKIE = 'admin_session';
+// Must be `__session`: Firebase Hosting strips every other cookie from
+// requests it forwards to a function rewrite (see firebase.json's admin site).
+export const ADMIN_SESSION_COOKIE = '__session';
 
 /** One cookie, hand-parsed — not worth adding cookie-parser as a dependency for this. */
 function readCookie(req: Request, name: string): string | undefined {

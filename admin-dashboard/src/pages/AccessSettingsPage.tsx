@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Layout } from '../components/Layout';
-import { api, ApiError, type DisputeData, type UserDetail } from '../api';
+import { api, ApiError, type DisputeData, type UserDataCounts, type UserDetail } from '../api';
 import { formatDate, formatDateTime, formatInputDate, todayInputValue } from '../format';
 
 type Banner = { kind: 'error' | 'success'; lines: string[] } | null;
@@ -443,11 +443,163 @@ function DisputeDataView() {
   );
 }
 
+/** Same normalising as the backend: spaces/dashes dropped, a bare 10-digit number gets +91. */
+function normalizePhone(value: string): string {
+  const compact = value.replace(/[\s-]/g, '');
+  return /^\d{10}$/.test(compact) ? `+91${compact}` : compact;
+}
+
+const DATA_LABELS: Array<[keyof UserDataCounts, string]> = [
+  ['profileDocs', 'Account, profile and kundali report'],
+  ['chats', 'Chats'],
+  ['subscriptions', 'Subscriptions'],
+  ['transactions', 'Transactions'],
+  ['payments', 'Payment records'],
+  ['paymentOrders', 'Payment orders'],
+  ['scheduledActions', 'Scheduled resets/expiries'],
+];
+
+function DeleteAccount() {
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [pending, setPending] = useState<{ user: UserDetail; counts: UserDataCounts } | null>(null);
+  const [confirmNumber, setConfirmNumber] = useState('');
+  const [banner, setBanner] = useState<Banner>(null);
+  const [busy, setBusy] = useState(false);
+
+  const confirmed = pending !== null && normalizePhone(confirmNumber) === pending.user.phoneNumber;
+
+  const handleSubmit = async () => {
+    setBanner(null);
+    if (!phoneNumber.trim()) {
+      setBanner({ kind: 'error', lines: ['User number is required.'] });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const [user, counts] = await Promise.all([
+        api.lookupUser(phoneNumber.trim()),
+        api.previewUserDeletion(phoneNumber.trim()),
+      ]);
+      setPending({ user, counts });
+    } catch (err) {
+      setBanner({ kind: 'error', lines: [errorText(err)] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setPending(null);
+    setConfirmNumber('');
+  };
+
+  const handleDelete = async () => {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      const result = await api.deleteUser(pending.user.phoneNumber, confirmNumber.trim());
+      setBanner({
+        kind: 'success',
+        lines: [
+          `Account ${pending.user.phoneNumber} has been permanently deleted.`,
+          ...DATA_LABELS.filter(([key]) => result.deleted[key] > 0).map(
+            ([key, label]) => `${label}: ${result.deleted[key]} deleted`,
+          ),
+          result.subscriptionsCancelled > 0
+            ? 'Auto-debit was cancelled at Razorpay.'
+            : 'There was no auto-debit to cancel.',
+        ],
+      });
+      setPhoneNumber('');
+      handleCancel();
+    } catch (err) {
+      setBanner({ kind: 'error', lines: [errorText(err)] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <BannerView banner={banner} />
+      <div className="card">
+        <h2>Delete account</h2>
+        <div className="field-row">
+          <label>User number</label>
+          <input
+            type="text"
+            placeholder="9876543210"
+            value={phoneNumber}
+            disabled={pending !== null}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !pending && handleSubmit()}
+          />
+        </div>
+        <p className="hint">
+          Permanently deletes the user and everything linked to them — profile, kundali, chats, subscriptions,
+          payments and transactions. Any auto-debit is cancelled at Razorpay first. Dispute data and invoices for
+          this user will no longer be available.
+        </p>
+
+        {pending ? (
+          <div className="confirm-box">
+            <div className="confirm-title">This cannot be undone</div>
+            <div className="detail-row">
+              <span className="label">User</span>
+              <span>
+                {pending.user.name ?? 'No name'} · {pending.user.phoneNumber}
+              </span>
+            </div>
+            <div className="detail-row">
+              <span className="label">Subscription now</span>
+              <span>{pending.user.mandate.status}</span>
+            </div>
+            <div className="detail-row">
+              <span className="label">Credits now</span>
+              <span>{pending.user.credits}</span>
+            </div>
+            {DATA_LABELS.map(([key, label]) => (
+              <div className="detail-row" key={key}>
+                <span className="label">{label}</span>
+                <span>{pending.counts[key]}</span>
+              </div>
+            ))}
+            <div className="field-row" style={{ marginTop: 14 }}>
+              <label>Type the user number again to confirm</label>
+              <input
+                type="text"
+                placeholder={pending.user.phoneNumber}
+                value={confirmNumber}
+                autoFocus
+                onChange={(e) => setConfirmNumber(e.target.value)}
+              />
+            </div>
+            <div className="button-row">
+              <button className="danger" onClick={handleDelete} disabled={busy || !confirmed}>
+                {busy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+              <button className="small" onClick={handleCancel} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="primary" onClick={handleSubmit} disabled={busy}>
+            {busy ? 'Checking user…' : 'Submit'}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 const SECTIONS = [
   { id: 'give', label: 'Give subscription', view: GiveSubscription },
   { id: 'reset', label: 'Reset subscription', view: ResetSubscription },
   { id: 'expire', label: 'Expire subscription', view: ExpireSubscription },
   { id: 'dispute', label: 'Get dispute data', view: DisputeDataView },
+  { id: 'delete', label: 'Delete account', view: DeleteAccount },
 ] as const;
 
 export function AccessSettingsPage() {

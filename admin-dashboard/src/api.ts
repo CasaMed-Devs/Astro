@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 export class ApiError extends Error {}
 
@@ -155,6 +155,23 @@ export interface AdminLog {
   createdAt?: string;
 }
 
+/** What deleting a user removes, counted per kind. */
+export interface UserDataCounts {
+  chats: number;
+  subscriptions: number;
+  transactions: number;
+  payments: number;
+  paymentOrders: number;
+  scheduledActions: number;
+  /** The user doc, birth-details profile and kundali report. */
+  profileDocs: number;
+}
+
+export interface DeleteUserResult {
+  deleted: UserDataCounts;
+  subscriptionsCancelled: number;
+}
+
 export interface UserDetail {
   uid: string;
   phoneNumber: string;
@@ -195,6 +212,11 @@ export const api = {
     requestHtml(
       `/admin/users/dispute/invoice?phoneNumber=${encodeURIComponent(phoneNumber)}&transactionId=${encodeURIComponent(transactionId)}`,
     ),
+
+  previewUserDeletion: (phoneNumber: string) =>
+    request<UserDataCounts>(`/admin/users/deletion-preview?phoneNumber=${encodeURIComponent(phoneNumber)}`),
+  deleteUser: (phoneNumber: string, confirmPhoneNumber: string) =>
+    request<DeleteUserResult>('/admin/users/delete', { method: 'POST', body: { phoneNumber, confirmPhoneNumber } }),
 
   /** Dates are YYYY-MM-DD, read as calendar days in India (IST). */
   giveSubscription: (phoneNumber: string, validUntil: string, credits: number, unlockKundali: boolean) =>

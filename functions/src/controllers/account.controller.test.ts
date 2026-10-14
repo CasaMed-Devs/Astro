@@ -4,6 +4,7 @@ const store = new Map<string, Record<string, unknown>>();
 
 function docRef(path: string) {
   const ref = {
+    path,
     get: async () => ({ exists: store.has(path), data: () => store.get(path), ref }),
     set: async (data: Record<string, unknown>, options?: { merge?: boolean }) => {
       store.set(path, options?.merge ? { ...store.get(path), ...data } : data);
@@ -22,6 +23,11 @@ function docsIn(collection: string) {
 }
 
 const fakeFirestore = {
+  recursiveDelete: async (ref: { path: string }) => {
+    for (const path of [...store.keys()]) {
+      if (path === ref.path || path.startsWith(`${ref.path}/`)) store.delete(path);
+    }
+  },
   collection: (name: string) => ({
     doc: (id: string) => docRef(`${name}/${id}`),
     get: async () => ({ docs: docsIn(name) }),

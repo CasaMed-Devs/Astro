@@ -10,6 +10,7 @@ const ACTION_LABELS: Record<string, string> = {
   schedule_expire: 'Schedule expiry',
   schedule_reset: 'Schedule reset',
   grant_expired: 'Given subscription ended',
+  delete_account: 'Delete account',
 };
 
 /** One readable sentence out of a log row's details, per action. */
@@ -35,6 +36,11 @@ function summarize(log: AdminLog): string {
       return `For ${formatDate(String(d.scheduledFor))}`;
     case 'grant_expired':
       return d.keptPaidSubscription ? 'User stays active on their own paid subscription' : 'Subscription turned off';
+    case 'delete_account': {
+      const deleted = (log.details.deleted ?? {}) as Record<string, number>;
+      const total = Object.values(deleted).reduce((sum, count) => sum + count, 0);
+      return `${total} records deleted${Number(d.subscriptionsCancelled) > 0 ? ' · auto-debit cancelled' : ''}`;
+    }
     default:
       return '';
   }
