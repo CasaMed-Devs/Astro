@@ -9,12 +9,17 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { PersonaCard } from '@/features/astrologers/components/PersonaCard';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
+import { usePaywallData } from '@/services/paywallData';
 import { getPaywallRoute } from '@/utils/paywall';
 import { colors, radii, spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
   const { profile } = useAuth();
   const [astrologers, setAstrologers] = useState<AstrologerProfile[]>([]);
+  const { pricing } = usePaywallData();
+  const trialAmount = pricing?.trial.amount;
+  const trialCurrency = pricing?.trial.currency === 'INR' ? '₹' : '';
+  const trialLabel = trialAmount != null ? `Try for ${trialCurrency}${trialAmount}` : 'Try now';
 
   useEffect(() => {
     fetchAstrologerProfiles()
@@ -43,7 +48,7 @@ export default function HomeScreen() {
         <Pressable style={styles.upsellButton} onPress={() => router.push(getPaywallRoute(profile))}>
           <Crown size={16} color={colors.onGradientText} />
           <AppText variant="buttonLabel" color={colors.onGradientText}>
-            {profile?.trialCreditsClaimed ? 'Add credits' : 'Try for Rs.1'}
+            {profile?.trialCreditsClaimed ? 'Add credits' : trialLabel}
           </AppText>
         </Pressable>
       </View>

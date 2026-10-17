@@ -7,6 +7,7 @@ import {
   getSubscriptionAmount,
   getTopUpConfig,
   getTrialAmount,
+  getTrialDurationDays,
 } from '../../config/plans';
 import { setPaywallPricing } from '../../services/paywallPricing.service';
 
@@ -29,23 +30,27 @@ const topUpSchema = z.object({
 const updatePricingSchema = z.object({
   creditPricing: creditPricingSchema.optional(),
   trialAmount: priceSchema.optional(),
+  trialDurationDays: z.number().int().positive().optional(),
   subscriptionAmount: priceSchema.optional(),
   report: priceSchema.optional(),
   topUp: topUpSchema.optional(),
 });
 
 export async function getPricing(_req: Request, res: Response): Promise<void> {
-  const [rupeesPerCredit, trialAmount, subscriptionAmount, report, topUp] = await Promise.all([
-    getRupeesPerCredit(),
-    getTrialAmount(),
-    getSubscriptionAmount(),
-    getReportPrice(),
-    getTopUpConfig(),
-  ]);
+  const [rupeesPerCredit, trialAmount, trialDurationDays, subscriptionAmount, report, topUp] =
+    await Promise.all([
+      getRupeesPerCredit(),
+      getTrialAmount(),
+      getTrialDurationDays(),
+      getSubscriptionAmount(),
+      getReportPrice(),
+      getTopUpConfig(),
+    ]);
 
   res.json({
     creditPricing: { rupeesPerCredit },
     trialAmount,
+    trialDurationDays,
     subscriptionAmount,
     report,
     topUp,

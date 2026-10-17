@@ -20,6 +20,8 @@ export interface VerifyPaymentInput {
 
 export interface PublicPricing {
   trial: { amount: number; currency: string };
+  /** Days between mandate registration and the first real subscription charge. */
+  trialDurationDays: number;
   subscription: { amount: number; currency: string };
   report: { amount?: number; currency?: string };
   rupeesPerCredit: number;

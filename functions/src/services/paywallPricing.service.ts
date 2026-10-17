@@ -26,6 +26,12 @@ export interface TopUpConfig {
 export interface PaywallPricingRecord {
   creditPricing?: CreditPricing;
   trialAmount?: PaywallPrice;
+  // How many days after mandate registration the first real subscription
+  // charge fires (see mandate.service.ts's startNewMandateSubscription,
+  // which schedules the plan's start_at this many days out). Admin-editable;
+  // falls back to env.trialDurationDays — see config/plans.ts's
+  // getTrialDurationDays.
+  trialDurationDays?: number;
   // The legacy token engine's display/charge price (config/plans.ts's
   // getSubscriptionAmount) — left as-is, still used for every pre-existing
   // mandate registered before the Subscriptions API switch.

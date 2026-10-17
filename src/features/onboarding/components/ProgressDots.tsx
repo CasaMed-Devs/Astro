@@ -21,7 +21,7 @@ export function ProgressDots({ count, activeIndex }: ProgressDotsProps) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 6 },
+  row: { flexDirection: 'row', gap: 6, alignSelf: 'center' },
   dot: { height: 6, borderRadius: radii.pill },
   dotActive: { width: 42, backgroundColor: colors.progressActive },
   dotInactive: { width: 20, backgroundColor: colors.progressInactive },

@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import type { ReactNode } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { AppText } from '@/components/common/AppText';
@@ -14,6 +15,8 @@ type ButtonProps = {
   loading?: boolean;
   style?: ViewStyle;
   testID?: string;
+  /** Rendered after the label, e.g. a trailing arrow icon. */
+  icon?: ReactNode;
 };
 
 export function Button({
@@ -24,6 +27,7 @@ export function Button({
   loading,
   style,
   testID,
+  icon,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
   const contentColor =
@@ -32,9 +36,12 @@ export function Button({
   const content = loading ? (
     <ActivityIndicator color={contentColor} />
   ) : (
-    <AppText variant="buttonLabel" color={contentColor}>
-      {label}
-    </AppText>
+    <View style={styles.contentRow}>
+      <AppText variant="buttonLabel" color={contentColor}>
+        {label}
+      </AppText>
+      {icon}
+    </View>
   );
 
   if (variant === 'primary') {
@@ -71,6 +78,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   secondary: {
     backgroundColor: colors.surface,

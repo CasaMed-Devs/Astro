@@ -15,21 +15,31 @@ function PriceForm({
   buttonLabel,
   value,
   onSave,
+  durationDays,
+  onSaveDuration,
 }: {
   title: string;
   hint?: string;
   buttonLabel: string;
   value: PriceValue;
   onSave: (value: PriceValue) => Promise<void>;
+  /** When provided, also renders a "Trial duration (days)" field alongside amount/currency. */
+  durationDays?: number;
+  onSaveDuration?: (days: number) => Promise<void>;
 }) {
   const [amount, setAmount] = useState(value.amount != null ? String(value.amount) : '');
   const [currency, setCurrency] = useState(value.currency ?? '');
+  const [days, setDays] = useState(durationDays != null ? String(durationDays) : '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setAmount(value.amount != null ? String(value.amount) : '');
     setCurrency(value.currency ?? '');
   }, [value]);
+
+  useEffect(() => {
+    setDays(durationDays != null ? String(durationDays) : '');
+  }, [durationDays]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -38,6 +48,9 @@ function PriceForm({
         amount: amount ? Number(amount) : undefined,
         currency: currency || undefined,
       });
+      if (onSaveDuration && days) {
+        await onSaveDuration(Number(days));
+      }
     } finally {
       setSaving(false);
     }
@@ -55,6 +68,12 @@ function PriceForm({
           <label>Currency</label>
           <input type="text" placeholder="INR" value={currency} onChange={(e) => setCurrency(e.target.value)} />
         </div>
+        {onSaveDuration ? (
+          <div className="field-row">
+            <label>Trial duration (days)</label>
+            <input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
+          </div>
+        ) : null}
       </div>
       {hint ? <p className="hint">{hint}</p> : null}
       <button className="primary" onClick={handleSave} disabled={saving}>
@@ -195,6 +214,7 @@ function TopUpForm({
 export function PricingPage() {
   const [creditPricing, setCreditPricing] = useState<CreditPricingValue>({});
   const [trialAmount, setTrialAmount] = useState<PriceValue>({});
+  const [trialDurationDays, setTrialDurationDays] = useState<number>();
   const [subscriptionAmount, setSubscriptionAmount] = useState<PriceValue>({});
   const [report, setReport] = useState<PriceValue>({});
   const [topUp, setTopUp] = useState<TopUpConfigValue>({});
@@ -207,6 +227,7 @@ export function PricingPage() {
       .then((data) => {
         setCreditPricing(data.creditPricing);
         setTrialAmount(data.trialAmount);
+        setTrialDurationDays(data.trialDurationDays);
         setSubscriptionAmount(data.subscriptionAmount);
         setReport(data.report);
         setTopUp(data.topUp);
@@ -234,14 +255,16 @@ export function PricingPage() {
           <CreditPriceForm value={creditPricing} onSave={(v) => save({ creditPricing: v })} />
           <PriceForm
             title="Trial (mandate registration charge)"
-            hint="Charged once when a new user sets up auto-debit. Grants 5 free credits the first time only. The day-2 auto-debit is then the subscription amount below."
-            buttonLabel="Save trial amount"
+            hint={`Charged once when a new user sets up auto-debit. Grants 5 free credits the first time only. The day-${(trialDurationDays ?? 1) + 1} auto-debit is then the subscription amount below.`}
+            buttonLabel="Save trial amount & duration"
             value={trialAmount}
             onSave={(v) => save({ trialAmount: v })}
+            durationDays={trialDurationDays}
+            onSaveDuration={(days) => save({ trialDurationDays: days })}
           />
           <PriceForm
             title="Subscription (recurring auto-debit)"
-            hint="Charged automatically on day 2 after the trial, then every 30 days, against the user's saved card/UPI mandate. Also what 'Subscribe now' charges immediately."
+            hint={`Charged automatically on day ${(trialDurationDays ?? 1) + 1} after the trial, then every 30 days, against the user's saved card/UPI mandate. Also what 'Subscribe now' charges immediately.`}
             buttonLabel="Save subscription amount"
             value={subscriptionAmount}
             onSave={(v) => save({ subscriptionAmount: v })}

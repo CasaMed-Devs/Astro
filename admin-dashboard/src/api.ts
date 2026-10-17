@@ -76,6 +76,8 @@ export interface TopUpConfigValue {
 export interface PricingResponse {
   creditPricing: CreditPricingValue;
   trialAmount: PriceValue;
+  /** Days between mandate registration and the first real subscription charge. */
+  trialDurationDays?: number;
   subscriptionAmount: PriceValue;
   report: PriceValue;
   topUp: TopUpConfigValue;
@@ -84,6 +86,7 @@ export interface PricingResponse {
 export interface PricingUpdate {
   creditPricing?: CreditPricingValue;
   trialAmount?: PriceValue;
+  trialDurationDays?: number;
   subscriptionAmount?: PriceValue;
   report?: PriceValue;
   topUp?: TopUpConfigValue;

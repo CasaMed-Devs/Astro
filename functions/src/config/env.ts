@@ -123,6 +123,11 @@ export const env = {
     amount: process.env.TRIAL_AMOUNT ? Number(process.env.TRIAL_AMOUNT) : 1,
     currency: process.env.TRIAL_CURRENCY ?? 'INR',
   },
+  // Days between mandate registration and the first real subscription
+  // charge, admin-editable via appConfig/paywallPricing.trialDurationDays.
+  trialDurationDays: process.env.TRIAL_DURATION_DAYS
+    ? Number(process.env.TRIAL_DURATION_DAYS)
+    : 1,
   subscriptionAmount: {
     amount: process.env.SUBSCRIPTION_AMOUNT ? Number(process.env.SUBSCRIPTION_AMOUNT) : 299,
     currency: process.env.SUBSCRIPTION_CURRENCY ?? 'INR',

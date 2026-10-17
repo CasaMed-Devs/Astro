@@ -21,6 +21,17 @@ export async function getTrialAmount(): Promise<ResolvedPrice> {
 }
 
 /**
+ * Days between mandate registration and the first real subscription charge,
+ * admin-editable via appConfig/paywallPricing.trialDurationDays, falling back
+ * to env.trialDurationDays. Used by mandate.service.ts's
+ * startNewMandateSubscription to schedule the plan's start_at.
+ */
+export async function getTrialDurationDays(): Promise<number> {
+  const stored = await getPaywallPricingDoc();
+  return stored.trialDurationDays ?? env.trialDurationDays;
+}
+
+/**
  * The Rs.299 recurring auto-debit amount — both the display price and the
  * actual charge amount for day-2/monthly auto-debits and "upgrade now".
  */

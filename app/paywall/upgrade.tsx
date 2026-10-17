@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Sparkles, X } from 'lucide-react-native';
+import { ArrowRight, Check, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
@@ -24,13 +23,26 @@ import { AppError } from '@/utils/errors';
 // default, same as the trial paywall.
 const REGISTRATION_METHOD = 'upi' as const;
 
-const HERO_GRADIENT = ['#FFF3E0', '#FDE7C8'] as const;
+// Same hero artwork as the trial paywall (app/paywall/index.tsx), cropped
+// slightly shorter (390x300) so the whole screen fits without scrolling.
+const HERO_ASPECT_RATIO = 390 / 300;
 
 const FEATURES = [
-  'Credits are added the moment your payment succeeds',
-  'Same 1-credit rate with every astrologer',
-  'Credits top up automatically every month',
-  'Cancel anytime, no questions asked',
+  {
+    icon: MessageCircle,
+    title: 'Talk to any astrologer',
+    description: 'Choose from top astrologers in Kundali, Tarot, Palmistry, Numerology and Vastu.',
+  },
+  {
+    icon: Sparkles,
+    title: 'Ask all your questions',
+    description: 'Get personalised answers on love, career, money, health and more.',
+  },
+  {
+    icon: FileText,
+    title: 'Kundali report & daily horoscope',
+    description: 'Get your detailed Kundali report and daily horoscope included.',
+  },
 ];
 
 const POLL_INTERVAL_MS = 4000;
@@ -44,7 +56,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
  */
 export default function UpgradeScreen() {
   const { session, profile, refreshProfile } = useAuth();
-  const { pricing, avatars: avatarPersonas } = usePaywallData();
+  const { pricing } = usePaywallData();
   const amount = pricing?.subscription.amount;
   const currency = pricing?.subscription.currency;
   const [processing, setProcessing] = useState(false);
@@ -150,7 +162,7 @@ export default function UpgradeScreen() {
           <View style={styles.successIcon}>
             <Check size={32} color={colors.primary} strokeWidth={3} />
           </View>
-          <AppText style={styles.headline}>You&apos;re all set</AppText>
+          <AppText style={styles.successHeadline}>You&apos;re all set</AppText>
           <AppText style={styles.successBody}>
             Your subscription is active. New balance: {profile?.credits ?? '—'} credits.
           </AppText>
@@ -165,92 +177,73 @@ export default function UpgradeScreen() {
   }
 
   return (
-    <Screen scroll>
-      <Pressable onPress={handleClose} style={styles.closeButton}>
-        <X size={20} color={colors.textPrimary} />
-      </Pressable>
-
-      <LinearGradient
-        colors={HERO_GRADIENT}
-        style={styles.heroCard}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <View style={styles.heroGlyphRow}>
-          <AppText style={styles.heroGlyph}>ॐ</AppText>
-          <AppText style={styles.heroGlyphTitle}>जन्म कुंडली</AppText>
-          <AppText style={styles.heroGlyph}>ॐ</AppText>
-        </View>
-        {avatarPersonas.length > 0 ? (
-          <>
-            <View style={styles.avatarStrip}>
-              {avatarPersonas.map((persona) => (
-                <Image key={persona.id} source={{ uri: persona.photoUrl }} style={styles.avatar} />
-              ))}
-            </View>
-            <AppText style={styles.avatarCaption}>
-              Kundali, tarot & palmistry experts ready to read your chart
-            </AppText>
-          </>
-        ) : null}
-      </LinearGradient>
-
-      <View style={styles.header}>
-        <View style={styles.badge}>
-          <Sparkles size={16} color={colors.primary} />
-          <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
-        </View>
-        <AppText style={styles.headline}>
-          Keep talking, <AppText style={styles.headlineAccent}>pay less</AppText>
-        </AppText>
-        <AppText style={styles.subtext}>
-          Subscribe for a flat monthly amount and get your credits instantly, so the conversation
-          never stops.
-        </AppText>
-      </View>
-
-      <View style={styles.features}>
-        {FEATURES.map((feature) => (
-          <View key={feature} style={styles.featureRow}>
-            <View style={styles.featureIconWrap}>
-              <Check size={16} color={colors.primary} strokeWidth={3} />
-            </View>
-            <AppText style={styles.featureText}>{feature}</AppText>
+    <Screen padded={false}>
+      <View style={styles.heroWrap}>
+        <Image
+          source={require('../../assets/images/paywall/hero.png')}
+          style={styles.heroImage}
+          resizeMode="cover"
+        />
+        <Pressable onPress={handleClose} style={styles.closeButton} hitSlop={8}>
+          <X size={20} color={colors.textPrimary} />
+        </Pressable>
+        <View style={styles.heroTextOverlay}>
+          <View style={styles.badge}>
+            <Sparkles size={16} color={colors.primary} />
+            <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
           </View>
-        ))}
-      </View>
-
-      <View style={styles.priceCard}>
-        <View style={styles.priceAccentBar} />
-        <View style={styles.priceCardBody}>
-          {pricingReady ? (
-            <>
-              <View style={styles.priceCardCopy}>
-                <AppText style={styles.priceCardTitle}>Astro108 Plus</AppText>
-                <AppText style={styles.priceCardSubtitle}>Per month · Cancel anytime</AppText>
-              </View>
-              <AppText style={styles.priceValue}>
-                {currencySymbol}
-                {amount}
-              </AppText>
-            </>
-          ) : (
-            <View style={styles.priceSkeleton} />
-          )}
+          <AppText style={styles.headline}>Keep talking.</AppText>
+          <AppText style={styles.headlineAccent}>Pay less.</AppText>
+          <AppText style={styles.subtext}>
+            Subscribe for a flat monthly amount and get your credits instantly.
+          </AppText>
         </View>
       </View>
 
-      {error ? (
-        <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
-          {error}
-        </AppText>
-      ) : null}
+      <View style={styles.body}>
+        <View style={styles.featuresCard}>
+          {FEATURES.map((feature, index) => (
+            <View key={feature.title}>
+              <View style={styles.featureRow}>
+                <View style={styles.featureIconWrap}>
+                  <feature.icon size={20} color={colors.primary} />
+                </View>
+                <View style={styles.featureCopy}>
+                  <AppText style={styles.featureTitle}>{feature.title}</AppText>
+                  <AppText style={styles.featureDescription}>{feature.description}</AppText>
+                </View>
+              </View>
+              {index < FEATURES.length - 1 ? <View style={styles.featureDivider} /> : null}
+            </View>
+          ))}
+        </View>
 
-      {waiting ? <AppText style={styles.waitingText}>Confirming your payment...</AppText> : null}
+        {pricingReady ? (
+          <View style={styles.pricingBlock}>
+            <AppText style={styles.pricingLabel}>Astro108 Plus</AppText>
+            <AppText style={styles.priceValue}>
+              {currencySymbol}
+              {amount}
+            </AppText>
+            <AppText style={styles.pricingSubtitle}>Per month · Cancel anytime</AppText>
+          </View>
+        ) : (
+          <View style={styles.pricingBlock}>
+            <View style={styles.priceSkeleton} />
+          </View>
+        )}
 
-      <View style={styles.footer}>
+        {error ? (
+          <AppText variant="bodySmall" color={colors.danger} style={styles.error}>
+            {error}
+          </AppText>
+        ) : null}
+
+        {waiting ? <AppText style={styles.waitingText}>Confirming your payment...</AppText> : null}
+
         <Button
           label={pricingReady ? `Subscribe for ${currencySymbol}${amount}` : 'Subscribe'}
+          icon={<ArrowRight size={18} color={colors.onGradientText} />}
           onPress={handleSubscribe}
           loading={processing || waiting}
           disabled={!pricingReady || !session}
@@ -265,159 +258,122 @@ export default function UpgradeScreen() {
 }
 
 const styles = StyleSheet.create({
+  heroWrap: { width: '100%', aspectRatio: HERO_ASPECT_RATIO },
+  heroImage: { width: '100%', height: '100%' },
   closeButton: {
-    alignSelf: 'flex-end',
-    width: 40,
-    height: 40,
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.lg,
+    width: 36,
+    height: 36,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.sm,
     ...shadows.card,
   },
-  heroCard: {
-    marginTop: spacing.md,
-    minHeight: 200,
-    borderRadius: radii.lg,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-    ...shadows.card,
+  heroTextOverlay: {
+    position: 'absolute',
+    top: '20%',
+    right: spacing.lg,
+    left: '52%',
   },
-  heroGlyphRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-    paddingHorizontal: spacing.sm,
-  },
-  heroGlyph: { fontFamily: fonts.wordmark, fontSize: 26, lineHeight: 36, color: colors.primary },
-  heroGlyphTitle: {
-    fontFamily: fonts.wordmark,
-    fontSize: 26,
-    lineHeight: 36,
-    color: colors.textPrimary,
-    flexShrink: 1,
-    textAlign: 'center',
-  },
-  avatarStrip: { flexDirection: 'row' },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: radii.pill,
-    marginLeft: -14,
-    borderWidth: 3,
-    borderColor: colors.surface,
-  },
-  avatarCaption: {
-    marginTop: spacing.md,
-    textAlign: 'center',
-    fontFamily: fonts.bodyMedium,
-    fontSize: 15,
-    lineHeight: 21,
-    color: colors.textSecondary,
-    paddingHorizontal: spacing.md,
-  },
-  header: { gap: spacing.sm, marginTop: spacing.xxl },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     alignSelf: 'flex-start',
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radii.pill,
+    ...shadows.card,
   },
   badgeText: {
     fontFamily: fonts.bodyBold,
-    fontSize: 13,
+    fontSize: 11,
     letterSpacing: 0.5,
     color: colors.primary,
   },
   headline: {
     fontFamily: fonts.display,
-    fontSize: 38,
-    lineHeight: 44,
+    fontSize: 24,
+    lineHeight: 28,
     color: colors.textPrimary,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
   headlineAccent: {
     fontFamily: fonts.display,
-    fontSize: 38,
-    lineHeight: 44,
+    fontSize: 24,
+    lineHeight: 28,
     color: colors.primary,
   },
   subtext: {
     fontFamily: fonts.bodyMedium,
-    fontSize: 16,
-    lineHeight: 23,
+    fontSize: 12,
+    lineHeight: 17,
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
-  features: { gap: spacing.lg, marginTop: spacing.xxl },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  body: { flex: 1, paddingHorizontal: spacing.xl, justifyContent: 'space-evenly' },
+  featuresCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+  },
   featureIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: radii.pill,
+    width: 42,
+    height: 42,
+    borderRadius: radii.sm,
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featureText: {
-    flex: 1,
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 16,
-    lineHeight: 22,
+  featureCopy: { flex: 1, gap: 2 },
+  featureTitle: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 17,
     color: colors.textPrimary,
   },
-  priceCard: {
-    marginTop: spacing.xxl,
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    ...shadows.card,
+  featureDescription: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    lineHeight: 19,
+    color: colors.textSecondary,
   },
-  priceAccentBar: { width: 6, backgroundColor: colors.primary },
-  priceSkeleton: { height: 44, flex: 1, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
-  priceCardBody: {
-    flex: 1,
-    padding: spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  priceCardCopy: { flex: 1, gap: 2 },
-  priceCardTitle: {
+  featureDivider: { height: 1, backgroundColor: colors.border },
+  pricingBlock: { alignItems: 'center', gap: 4 },
+  pricingLabel: {
     fontFamily: fonts.bodyBold,
     fontSize: 18,
     color: colors.textPrimary,
   },
-  priceCardSubtitle: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
   priceValue: {
     fontFamily: fonts.display,
-    fontSize: 35,
-    lineHeight: 42,
+    fontSize: 52,
+    lineHeight: 60,
     color: colors.primaryDark,
   },
-  error: { marginTop: spacing.md, fontSize: 14 },
+  pricingSubtitle: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+    color: colors.textSecondary,
+  },
+  priceSkeleton: { height: 90, width: '100%', borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
+  error: { marginTop: spacing.sm, fontSize: 14, textAlign: 'center' },
   waitingText: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     fontFamily: fonts.bodyMedium,
     fontSize: 14,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
-  footer: { marginTop: spacing.xxl, marginBottom: spacing.xxl, gap: spacing.md },
   ctaButton: { height: 56, alignSelf: 'stretch' },
   skipLabel: {
     textAlign: 'center',
@@ -433,6 +389,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  successHeadline: {
+    fontFamily: fonts.display,
+    fontSize: 38,
+    lineHeight: 44,
+    color: colors.textPrimary,
   },
   successBody: {
     textAlign: 'center',

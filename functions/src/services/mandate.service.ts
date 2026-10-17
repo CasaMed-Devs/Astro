@@ -1,7 +1,13 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { getRupeesPerCredit, getSubscriptionAmount, getSubscriptionPlanId, getTrialAmount } from '../config/plans';
+import {
+  getRupeesPerCredit,
+  getSubscriptionAmount,
+  getSubscriptionPlanId,
+  getTrialAmount,
+  getTrialDurationDays,
+} from '../config/plans';
 import {
   cancelSubscription as cancelRazorpaySubscription,
   createRecurringSubscription,
@@ -183,16 +189,18 @@ async function startNewMandateSubscription(
 ): Promise<NewMandateSubscription> {
   const planId = await getSubscriptionPlanId();
   const subscriptionAmount = await getSubscriptionAmount();
-  const trial = purpose === 'trial' ? await getTrialAmount() : null;
+  const trialDetails =
+    purpose === 'trial' ? await Promise.all([getTrialAmount(), getTrialDurationDays()]) : null;
+  const trial = trialDetails?.[0] ?? null;
 
   const subscription = await createRecurringSubscription(
     planId,
     SUBSCRIPTION_TOTAL_COUNT,
     { uid, purpose },
-    trial
+    trialDetails
       ? {
-          startAtSeconds: Math.floor((Date.now() + DAY_MS) / 1000),
-          addonAmountRupees: trial.amount,
+          startAtSeconds: Math.floor((Date.now() + trialDetails[1] * DAY_MS) / 1000),
+          addonAmountRupees: trialDetails[0].amount,
           addonName: 'Astro108 Trial',
         }
       : undefined,

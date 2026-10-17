@@ -9,6 +9,7 @@ import {
   getSubscriptionAmount,
   getTopUpConfig,
   getTrialAmount,
+  getTrialDurationDays,
 } from '../config/plans';
 import {
   createOrder,
@@ -234,14 +235,15 @@ export async function getTopUpHistory(req: Request, res: Response): Promise<void
  * secrets here — safe for any authenticated user.
  */
 export async function getPublicPricing(_req: Request, res: Response): Promise<void> {
-  const [trial, subscription, report, rupeesPerCredit] = await Promise.all([
+  const [trial, trialDurationDays, subscription, report, rupeesPerCredit] = await Promise.all([
     getTrialAmount(),
+    getTrialDurationDays(),
     getSubscriptionAmount(),
     getReportPrice(),
     getRupeesPerCredit(),
   ]);
 
-  res.json({ trial, subscription, report, rupeesPerCredit });
+  res.json({ trial, trialDurationDays, subscription, report, rupeesPerCredit });
 }
 
 export async function createReportOrder(req: Request, res: Response): Promise<void> {

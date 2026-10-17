@@ -1,30 +1,28 @@
 export interface OnboardingSlide {
   id: string;
   title: string;
-  description: string;
   image: number;
+  /** width / height of the source PNG, so it can be laid out edge-to-edge without cropping or letterboxing. */
+  aspectRatio: number;
 }
 
 export const onboardingSlides: OnboardingSlide[] = [
   {
-    id: 'stars-decoded',
-    title: 'Your stars, decoded',
-    description:
-      'Vedic charts read by astrologers who have spent decades with the shastras — not guesswork.',
-    image: require('../../../../assets/images/onboarding/stars-decoded.png'),
-  },
-  {
-    id: 'pick-skill',
-    title: 'Pick the right skill',
-    description:
-      'Filter by Kundali, Tarot, Palmistry, Numerology or Vastu and choose the expert who fits your question.',
-    image: require('../../../../assets/images/onboarding/pick-skill.png'),
-  },
-  {
-    id: 'talk-by-the-minute',
-    title: 'Talk by the minute',
-    description:
-      'No long packages. Start a chat, pay only for the minutes you use, end whenever you have your answer.',
+    id: 'ask-anything',
+    title: 'Ask anything',
     image: require('../../../../assets/images/onboarding/ask-anything.png'),
+    aspectRatio: 390 / 525,
+  },
+  {
+    id: 'know-your-future',
+    title: 'Know your future',
+    image: require('../../../../assets/images/onboarding/know-your-future.png'),
+    aspectRatio: 390 / 544,
+  },
+  {
+    id: 'ai-astrologer',
+    title: 'Talk to an AI astrologer',
+    image: require('../../../../assets/images/onboarding/ai-astrologer.png'),
+    aspectRatio: 390 / 586,
   },
 ];

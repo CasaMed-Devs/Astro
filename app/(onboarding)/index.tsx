@@ -9,15 +9,38 @@ import {
   type ViewToken,
 } from 'react-native';
 import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { ProgressDots } from '@/features/onboarding/components/ProgressDots';
 import { onboardingSlides } from '@/features/onboarding/config/slides';
-import { colors, radii, spacing } from '@/constants/theme';
+import { colors, spacing } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Eased (non-linear) alpha stops so the image dissolves into the page
+// background gradually instead of showing a visible soft "edge".
+const FADE_LOCATIONS = [0, 0.3, 0.55, 0.75, 1] as const;
+const FADE_ALPHAS = [0, 0.12, 0.35, 0.68, 1] as const;
+
+function withAlpha(hex: string, alpha: number) {
+  const value = hex.replace('#', '');
+  const r = parseInt(value.substring(0, 2), 16);
+  const g = parseInt(value.substring(2, 4), 16);
+  const b = parseInt(value.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+const fadeBottomColors = FADE_ALPHAS.map((alpha) => withAlpha(colors.backgroundTo, alpha)) as [
+  string,
+  string,
+  ...string[],
+];
+const fadeTopColors = [...FADE_ALPHAS]
+  .reverse()
+  .map((alpha) => withAlpha(colors.backgroundFrom, alpha)) as [string, string, ...string[]];
 
 export default function OnboardingCarousel() {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -47,13 +70,11 @@ export default function OnboardingCarousel() {
 
   return (
     <Screen padded={false} edges={['top', 'bottom']}>
-      <View style={styles.header}>
-        <Pressable onPress={handleSkip} hitSlop={12} testID="onboarding-skip">
-          <AppText variant="body" color={colors.textSecondary}>
-            Skip
-          </AppText>
-        </Pressable>
-      </View>
+      <Pressable onPress={handleSkip} hitSlop={12} style={styles.skip} testID="onboarding-skip">
+        <AppText variant="body" color={colors.textSecondary}>
+          Skip
+        </AppText>
+      </Pressable>
       <FlatList
         ref={listRef}
         data={onboardingSlides}
@@ -63,18 +84,36 @@ export default function OnboardingCarousel() {
         showsHorizontalScrollIndicator={false}
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+        style={styles.list}
         renderItem={({ item }) => (
           <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-            <View style={styles.imageCard}>
-              <Image source={item.image} style={styles.image} resizeMode="cover" />
-            </View>
-            <View style={styles.textBlock}>
+            <View style={styles.brand}>
+              <Image
+                source={require('../../assets/images/android-icon-foreground.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <AppText variant="wordmark" color={colors.primary} style={styles.wordmark}>
+                Astro108
+              </AppText>
               <AppText variant="displayLg" style={styles.title}>
                 {item.title}
               </AppText>
-              <AppText variant="body" color={colors.textSecondary} style={styles.description}>
-                {item.description}
-              </AppText>
+            </View>
+            <View style={[styles.imageWrap, { aspectRatio: item.aspectRatio }]}>
+              <Image source={item.image} style={styles.image} resizeMode="cover" />
+              <LinearGradient
+                colors={fadeBottomColors}
+                locations={FADE_LOCATIONS}
+                style={styles.fadeBottom}
+                pointerEvents="none"
+              />
+              <LinearGradient
+                colors={fadeTopColors}
+                locations={FADE_LOCATIONS}
+                style={styles.fadeTop}
+                pointerEvents="none"
+              />
             </View>
           </View>
         )}
@@ -82,7 +121,7 @@ export default function OnboardingCarousel() {
       <View style={styles.footer}>
         <ProgressDots count={onboardingSlides.length} activeIndex={activeIndex} />
         <Button
-          label={isLastSlide ? 'Create my account' : 'Continue'}
+          label="Continue"
           onPress={handleContinue}
           style={styles.continueButton}
           testID="onboarding-continue"
@@ -93,20 +132,22 @@ export default function OnboardingCarousel() {
 }
 
 const styles = StyleSheet.create({
-  header: { alignItems: 'flex-end', paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
-  slide: { flex: 1 },
-  imageCard: {
-    marginHorizontal: spacing.xl,
-    aspectRatio: 1,
-    borderRadius: radii.lg,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
+  skip: {
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.xl,
+    zIndex: 10,
   },
+  list: { flex: 1 },
+  slide: { flex: 1, justifyContent: 'center' },
+  brand: { alignItems: 'center', gap: spacing.xs, paddingTop: spacing.lg },
+  logo: { width: 84, height: 84 },
+  wordmark: { fontSize: 30, lineHeight: 36, letterSpacing: 0.6 },
+  title: { fontSize: 38, lineHeight: 45, marginTop: spacing.sm },
+  imageWrap: { width: '100%', marginTop: spacing.lg, overflow: 'hidden' },
   image: { width: '100%', height: '100%' },
-  textBlock: { paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, gap: spacing.md },
-  title: { fontSize: 34, lineHeight: 40 },
-  description: { fontSize: 16, lineHeight: 24 },
+  fadeBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '32%' },
+  fadeTop: { position: 'absolute', left: 0, right: 0, top: 0, height: '20%' },
   footer: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.lg },
   continueButton: { width: '100%' },
 });

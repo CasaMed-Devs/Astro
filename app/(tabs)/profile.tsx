@@ -22,6 +22,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { openSupportEmail } from '@/features/support/supportEmail';
+import { usePaywallData } from '@/services/paywallData';
 import { getPaywallRoute } from '@/utils/paywall';
 import { showErrorToast } from '@/utils/toast';
 import type { LegalDocId } from '@/constants/legal';
@@ -33,6 +34,11 @@ const openLegalDoc = (doc: LegalDocId) =>
 export default function ProfileScreen() {
   const { profile, signOut } = useAuth();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const { pricing } = usePaywallData();
+  const trialAmount = pricing?.trial.amount;
+  const trialCurrency = pricing?.trial.currency === 'INR' ? '₹' : '';
+  const trialLabel =
+    trialAmount != null ? `Try Astro108 for ${trialCurrency}${trialAmount}` : 'Try Astro108';
 
   const handleSignOut = () => {
     setConfirmingLogout(false);
@@ -69,7 +75,7 @@ export default function ProfileScreen() {
       <Pressable style={styles.menuRow} onPress={() => router.push(getPaywallRoute(profile))}>
         <Crown size={20} color={colors.primary} />
         <AppText variant="body" style={styles.menuLabel}>
-          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : 'Try Astro108 for Rs.1'}
+          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : trialLabel}
         </AppText>
       </Pressable>
 

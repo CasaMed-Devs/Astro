@@ -102,6 +102,7 @@ jest.mock('./transactions.service', () => ({ recordTransaction: jest.fn(async ()
 
 jest.mock('../config/plans', () => ({
   getTrialAmount: jest.fn(async () => ({ amount: 1, currency: 'INR' })),
+  getTrialDurationDays: jest.fn(async () => 1),
   getSubscriptionAmount: jest.fn(async () => ({ amount: 299, currency: 'INR' })),
   getSubscriptionPlanId: jest.fn(async () => 'plan_test'),
   getRupeesPerCredit: jest.fn(async () => 1),
