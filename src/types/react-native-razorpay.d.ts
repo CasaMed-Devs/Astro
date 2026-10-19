@@ -11,9 +11,14 @@ declare module 'react-native-razorpay' {
     description?: string;
     image?: string;
     prefill?: { email?: string; contact?: string; name?: string; method?: string };
-    // Marks prefilled fields as already confirmed, which skips Razorpay
-    // Checkout's "enter mobile & email to continue" contact-details screen.
+    // Marks prefilled fields as non-editable (still visible) — on its own
+    // this does NOT skip Razorpay Checkout's "enter mobile & email to
+    // continue" contact-details screen.
     readonly?: { email?: boolean; contact?: boolean; name?: boolean };
+    // Removes these fields from the UI entirely (the prefilled value is
+    // still sent). Combined with `prefill`, this is what actually skips the
+    // contact-details screen for subscription checkouts.
+    hidden?: { email?: boolean; contact?: boolean };
     theme?: { color?: string };
   }
 

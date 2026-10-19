@@ -192,6 +192,7 @@ export async function openRazorpayCheckout(
         ...(options.contact ? { contact: options.contact } : {}),
       },
       readonly: { email: true, contact: Boolean(options.contact) },
+      hidden: { email: true, contact: Boolean(options.contact) },
       theme: { color: '#B25F0A' },
     });
 
@@ -229,6 +230,7 @@ export async function openRazorpaySubscriptionCheckout(
         ...(options.method ? { method: options.method } : {}),
       },
       readonly: { email: true, contact: Boolean(options.contact) },
+      hidden: { email: true, contact: Boolean(options.contact) },
       theme: { color: '#B25F0A' },
     });
 
