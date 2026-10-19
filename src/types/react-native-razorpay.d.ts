@@ -10,7 +10,10 @@ declare module 'react-native-razorpay' {
     name?: string;
     description?: string;
     image?: string;
-    prefill?: { email?: string; contact?: string; name?: string };
+    prefill?: { email?: string; contact?: string; name?: string; method?: string };
+    // Marks prefilled fields as already confirmed, which skips Razorpay
+    // Checkout's "enter mobile & email to continue" contact-details screen.
+    readonly?: { email?: boolean; contact?: boolean; name?: boolean };
     theme?: { color?: string };
   }
 

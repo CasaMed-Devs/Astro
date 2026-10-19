@@ -191,6 +191,7 @@ export async function openRazorpayCheckout(
         email: syntheticEmail(options.uid),
         ...(options.contact ? { contact: options.contact } : {}),
       },
+      readonly: { email: true, contact: Boolean(options.contact) },
       theme: { color: '#B25F0A' },
     });
 
@@ -227,6 +228,7 @@ export async function openRazorpaySubscriptionCheckout(
         ...(options.contact ? { contact: options.contact } : {}),
         ...(options.method ? { method: options.method } : {}),
       },
+      readonly: { email: true, contact: Boolean(options.contact) },
       theme: { color: '#B25F0A' },
     });
 

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "253818874134",
+    "project_id": "astro-d9814",
+    "storage_bucket": "astro-d9814.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:253818874134:android:448c937a3c28b0d3828837",
+        "android_client_info": {
+          "package_name": "com.astro101"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIInH7pXoFCUWx3Gjo_JQVxGWqv7qO4js"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
