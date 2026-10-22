@@ -137,6 +137,27 @@ describe('applyNewMandateEntitlement', () => {
     expect(store.subscriptions.sub_1).toMatchObject({ status: 'active' });
   });
 
+  it("records the trial's end (Razorpay start_at) as the user's paid access end", async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { uid1: { phoneNumber: '+911234567890', credits: 0, trialCreditsClaimed: false, subscriptionId: 'sub_13' } },
+      subscriptions: { sub_13: { userId: 'uid1', planId: 'trial', status: 'authenticated' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const razorpayService = await import('./razorpay.service');
+    const trialEndSeconds = Math.floor(Date.now() / 1000) + 3 * 24 * 60 * 60;
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({
+      status: 'authenticated',
+      current_end: null,
+      start_at: trialEndSeconds,
+    });
+    const { applyNewMandateEntitlement } = await import('./mandate.service');
+
+    await applyNewMandateEntitlement('uid1', 'sub_13', 'pay_13', 'authenticated', { via: 'webhook' });
+
+    expect((store.users.uid1.accessEndsAt as Timestamp).toMillis()).toBe(trialEndSeconds * 1000);
+  });
+
   it('credits the subscription amount worth of credits for a direct (non-trial) registration', async () => {
     const { db, store } = makeFakeFirestore({
       users: { uid1: { phoneNumber: '+911234567890', credits: 0, subscriptionId: 'sub_2' } },
@@ -264,6 +285,74 @@ describe('checkNewMandateStatus', () => {
 
     expect(status).toBe('active');
     expect(store.users.uid1.mandateStatus).toBe('active');
+  });
+
+  it('keeps an entitled trial active while Razorpay still reports it as authenticated', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: { uid1: { phoneNumber: '+911234567890', credits: 5, subscriptionId: 'sub_10', mandateStatus: 'active' } },
+      subscriptions: { sub_10: { userId: 'uid1', planId: 'trial', status: 'active' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const razorpayService = await import('./razorpay.service');
+    (razorpayService.fetchSubscription as jest.Mock).mockResolvedValue({ status: 'authenticated' });
+    const { checkNewMandateStatus } = await import('./mandate.service');
+
+    const status = await checkNewMandateStatus('uid1', 'sub_10');
+
+    expect(status).toBe('active');
+    expect(store.users.uid1.mandateStatus).toBe('active');
+    expect(store.subscriptions.sub_10.status).toBe('active');
+  });
+
+  it.each(['cancelled', 'halted', 'pending'] as const)(
+    'keeps access through a %s mandate until the paid period ends',
+    async (razorpayStatus) => {
+      const { db, store } = makeFakeFirestore({
+        users: {
+          uid1: {
+            phoneNumber: '+911234567890',
+            credits: 5,
+            subscriptionId: 'sub_11',
+            mandateStatus: 'active',
+            accessEndsAt: Timestamp.fromMillis(Date.now() + 60_000),
+          },
+        },
+        subscriptions: { sub_11: { userId: 'uid1', planId: 'plus', status: 'active' } },
+      });
+      const { adminFirestore } = await import('../config/firebase-admin');
+      (adminFirestore as jest.Mock).mockReturnValue(db);
+      const { updateNewMandateStatus } = await import('./mandate.service');
+
+      const status = await updateNewMandateStatus('uid1', 'sub_11', razorpayStatus, razorpayStatus);
+
+      expect(status).toBe('active');
+      expect(store.users.uid1.mandateStatus).toBe('active');
+      expect(store.users.uid1.razorpayStatus).toBe(razorpayStatus);
+    },
+  );
+
+  it('drops a cancelled mandate once the paid period has ended', async () => {
+    const { db, store } = makeFakeFirestore({
+      users: {
+        uid1: {
+          phoneNumber: '+911234567890',
+          credits: 5,
+          subscriptionId: 'sub_12',
+          mandateStatus: 'active',
+          accessEndsAt: Timestamp.fromMillis(Date.now() - 60_000),
+        },
+      },
+      subscriptions: { sub_12: { userId: 'uid1', planId: 'plus', status: 'active' } },
+    });
+    const { adminFirestore } = await import('../config/firebase-admin');
+    (adminFirestore as jest.Mock).mockReturnValue(db);
+    const { updateNewMandateStatus } = await import('./mandate.service');
+
+    const status = await updateNewMandateStatus('uid1', 'sub_12', 'cancelled', 'cancelled');
+
+    expect(status).toBe('cancelled');
+    expect(store.users.uid1.mandateStatus).toBe('cancelled');
   });
 
   it("ignores a status event for a cycle that is no longer the user's current one", async () => {

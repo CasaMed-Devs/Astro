@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
-import { hasLiveAdminGrant, stopMandateForAdmin } from './mandate.service';
+import { hasLiveAdminGrant, hasPaidAccess, stopMandateForAdmin } from './mandate.service';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import type { MandateStatus, SubscriptionCycleRecord, UserProfileRecord } from '../types';
 
@@ -206,6 +206,8 @@ export async function expireSubscription(uid: string, adminName: string): Promis
       mandateStatus: 'cancelled',
       ...(razorpayStatus ? { razorpayStatus } : {}),
       adminSubscription: FieldValue.delete(),
+      // An admin expiry ends access now, not at the end of the paid period.
+      accessEndsAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -248,6 +250,7 @@ export async function resetSubscription(uid: string, adminName: string): Promise
       // updateNewMandateStatus.
       subscriptionId: FieldValue.delete(),
       subscriptionActivatedAt: FieldValue.delete(),
+      accessEndsAt: FieldValue.delete(),
       razorpayStatus: FieldValue.delete(),
       mandateMethod: FieldValue.delete(),
       adminSubscription: FieldValue.delete(),
@@ -390,7 +393,8 @@ async function expireAdminGrantIfDue(uid: string): Promise<void> {
     const cycleSnapshot = user.subscriptionId
       ? await transaction.get(db.collection('subscriptions').doc(user.subscriptionId))
       : null;
-    const hasPaidSubscription = (cycleSnapshot?.data() as SubscriptionCycleRecord | undefined)?.status === 'active';
+    const hasPaidSubscription =
+      (cycleSnapshot?.data() as SubscriptionCycleRecord | undefined)?.status === 'active' || hasPaidAccess(user);
 
     transaction.update(userRef, {
       adminSubscription: FieldValue.delete(),

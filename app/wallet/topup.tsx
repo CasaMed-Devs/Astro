@@ -35,7 +35,7 @@ import {
 } from '@/services/payment.service';
 import { colors, fonts, gradients, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
-import { getPaywallRoute } from '@/utils/paywall';
+import { getPaywallRoute, hasAccess } from '@/utils/paywall';
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return '';
@@ -104,8 +104,8 @@ export default function TopUpScreen() {
     loadHistory();
   }, [loadHistory]);
 
-  // Trial and paid subscribers are both 'active'; everyone else must subscribe first.
-  const canTopUp = profile?.mandateStatus === 'active';
+  // Trial and paid subscribers (until their paid period ends) only.
+  const canTopUp = hasAccess(profile);
 
   const minRupees = config ? config.minAmount : null;
   const maxRupees = config ? config.maxAmount : null;

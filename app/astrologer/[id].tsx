@@ -15,7 +15,7 @@ import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import { getOrCreateChat } from '@/services/chat.service';
 import type { AstrologerProfile, RequiredInput } from '@/features/astrologers/types';
-import { getPaywallRoute } from '@/utils/paywall';
+import { getOutOfCreditsRoute } from '@/utils/paywall';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 
@@ -125,10 +125,10 @@ export default function AstrologerDetailScreen() {
   const startChat = async () => {
     if (!session || !canStart) return;
 
-    // New/unsubscribed users have 0 credits and can't chat with anyone
-    // until they pay — send them to the paywall instead of opening the chat.
+    // Out of credits: subscribed/trial users top up, everyone else sees the
+    // paywall — instead of opening a chat they can't send in.
     if ((profile?.credits ?? 0) <= 0) {
-      router.push(getPaywallRoute(profile));
+      router.push(getOutOfCreditsRoute(profile));
       return;
     }
 

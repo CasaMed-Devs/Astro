@@ -54,18 +54,45 @@ export async function getOrCreateChat(personaId: string): Promise<string> {
   }
 }
 
+/** The user's most recently messaged chat, for the astrologers tab's "Continue chat" card. */
+export interface RecentChat {
+  chatId: string;
+  personaId: string;
+  lastMessage: string | null;
+  lastMessageAt: string; // ISO
+}
+
+export async function fetchRecentChat(): Promise<RecentChat | null> {
+  try {
+    const { chat } = await apiClient.get<{ chat: RecentChat | null }>('/chats/recent');
+    return chat;
+  } catch (error) {
+    throw toAppError(error);
+  }
+}
+
 export interface MessagesUpdate {
   messages: ChatMessageDoc[];
   remainingCredits: number | null;
+  /** Whether older messages exist before this window; null for a cache hit (unknown). */
+  hasMore: boolean | null;
+  /** True for the instant in-memory cache replay, before the server has answered. */
+  fromCache: boolean;
 }
 
 export function subscribeToMessages(
   chatId: string,
   callback: (update: MessagesUpdate) => void,
+  onError?: (error: unknown) => void,
 ): () => void {
   const cached = getCachedChat(chatId);
   if (cached) {
-    callback({ messages: cached.messages, remainingCredits: cached.remainingCredits ?? null });
+    callback({
+      messages: cached.messages,
+      remainingCredits: cached.remainingCredits ?? null,
+      hasMore: null,
+      fromCache: true,
+    });
   }
 
   return pollFor(
@@ -73,10 +100,11 @@ export function subscribeToMessages(
       const result = await apiClient.get<ListMessagesResponse>(`/chats/${chatId}/messages`);
       const messages = result.messages.map(toDoc);
       updateCachedMessages(chatId, messages, result.remainingCredits);
-      return { messages, remainingCredits: result.remainingCredits };
+      return { messages, remainingCredits: result.remainingCredits, hasMore: result.hasMore, fromCache: false };
     },
     callback,
     MESSAGES_POLL_INTERVAL_MS,
+    onError,
   );
 }
 

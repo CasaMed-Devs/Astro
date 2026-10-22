@@ -2,7 +2,13 @@ import { Router } from 'express';
 
 import { requireAuth } from '../middleware/auth.middleware';
 import { asyncHandler } from '../utils/asyncHandler';
-import { createChat, getMessages, listPersonas, sendMessage } from '../controllers/chat.controller';
+import {
+  createChat,
+  getMessages,
+  getRecentChatHandler,
+  listPersonas,
+  sendMessage,
+} from '../controllers/chat.controller';
 import { getTodayHoroscope } from '../controllers/horoscope.controller';
 import {
   cancelSubscriptionHandler,
@@ -57,6 +63,7 @@ router.get('/mandate/me', requireAuth, asyncHandler(getMyMandate));
 router.get('/astrologers', asyncHandler(listPersonas));
 
 router.post('/chats', requireAuth, asyncHandler(createChat));
+router.get('/chats/recent', requireAuth, asyncHandler(getRecentChatHandler));
 router.get('/chats/:chatId/messages', requireAuth, asyncHandler(getMessages));
 router.post('/chats/:chatId/messages', requireAuth, asyncHandler(sendMessage));
 

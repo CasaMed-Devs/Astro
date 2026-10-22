@@ -19,11 +19,18 @@ import { Screen } from '@/components/common/Screen';
 import { ChatBubble } from '@/features/chat/components/ChatBubble';
 import { TypingIndicator } from '@/features/chat/components/TypingIndicator';
 import { EmptyView } from '@/components/states/EmptyView';
+import { ErrorView } from '@/components/states/ErrorView';
+import { SandTimerLoader } from '@/components/states/SandTimerLoader';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
-import { fetchOlderMessages, sendUserMessage, subscribeToMessages } from '@/services/chat.service';
+import {
+  fetchOlderMessages,
+  sendUserMessage,
+  subscribeToMessages,
+  type MessagesUpdate,
+} from '@/services/chat.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
-import { getPaywallRoute } from '@/utils/paywall';
+import { getOutOfCreditsRoute, getPaywallRoute, hasAccess } from '@/utils/paywall';
 import { colors, radii, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
 import type { ChatMessageDoc } from '@/types/firestore';
@@ -63,6 +70,17 @@ export default function ChatScreen() {
   // No session/time window — access is purely "do you have credits."
   // remainingCredits comes from the server after each message/list fetch.
   const [remainingCredits, setRemainingCredits] = useState<number | null>(null);
+  // The screen stays behind a loader until the chat history has arrived (and
+  // the astrologer lookup has settled), so it opens fully formed instead of
+  // flashing the greeting and then jumping to the real history.
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [personaLoaded, setPersonaLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const historyLoadedRef = useRef(false);
+  // The first scroll to the newest message happens without animation, so the
+  // chat appears already at the bottom.
+  const scrolledInitiallyRef = useRef(false);
 
   const messagesRef = useRef(messages);
   useEffect(() => {
@@ -98,12 +116,27 @@ export default function ChatScreen() {
   useEffect(() => {
     fetchAstrologerProfiles()
       .then((profiles) => setPersona(profiles.find((p) => p.id === personaId) ?? null))
-      .catch(() => setPersona(null));
+      .catch(() => setPersona(null))
+      .finally(() => setPersonaLoaded(true));
   }, [personaId]);
 
   useEffect(() => {
     if (!chatId) return;
-    return subscribeToMessages(chatId, ({ messages: fetched, remainingCredits: credits }) => {
+    const onUpdate = ({
+      messages: fetched,
+      remainingCredits: credits,
+      hasMore: more,
+      fromCache,
+    }: MessagesUpdate) => {
+      // Only the first server page decides whether older history exists;
+      // later polls return the same latest window and must not reset it
+      // after the user has paged back.
+      if (!fromCache && !historyLoadedRef.current && more != null) setHasMore(more);
+      if (!fromCache || fetched.length > 0) {
+        historyLoadedRef.current = true;
+        setHistoryLoaded(true);
+        setLoadFailed(false);
+      }
       // The poll only returns the latest window of messages. Merge instead of
       // replacing so earlier pages fetched via "load earlier" (which have a
       // lower seq than this window's start) aren't wiped out on the next tick.
@@ -125,8 +158,19 @@ export default function ChatScreen() {
         ),
       );
       if (credits != null) setRemainingCredits(credits);
-    });
-  }, [chatId]);
+    };
+    // A failure only matters before the history has loaded once; after that
+    // the background poll just retries on its next tick.
+    const onError = () => {
+      if (!historyLoadedRef.current) setLoadFailed(true);
+    };
+    return subscribeToMessages(chatId, onUpdate, onError);
+  }, [chatId, reloadKey]);
+
+  const retryLoad = () => {
+    setLoadFailed(false);
+    setReloadKey((key) => key + 1);
+  };
 
   const handleLoadOlder = async () => {
     if (oldestSeq == null || loadingOlder) return;
@@ -175,11 +219,11 @@ export default function ChatScreen() {
     const text = draft.trim();
     if (!text || sending) return;
 
-    // No credits at all — don't even attempt the send, go straight to the
-    // paywall (matches the "not allowed to chat until subscribed" rule for
-    // new/exhausted users rather than showing a dismissable error banner).
+    // No credits at all — don't even attempt the send. Trial/subscribed users
+    // go to top-up, everyone else to the paywall, rather than a dismissable
+    // error banner.
     if (remainingCredits != null && remainingCredits <= 0) {
-      router.push(getPaywallRoute(profile));
+      router.push(getOutOfCreditsRoute(profile));
       return;
     }
 
@@ -204,8 +248,8 @@ export default function ChatScreen() {
       setSending(false);
       if (appError?.code === 'credits/insufficient') {
         // Same rule applies if credits ran out server-side since our last
-        // sync (e.g. a race with another device) — go straight to paywall.
-        router.push(getPaywallRoute(profile));
+        // sync (e.g. a race with another device).
+        router.push(getOutOfCreditsRoute(profile));
         return;
       }
       setError(appError?.message ?? "Couldn't send your message.");
@@ -231,6 +275,17 @@ export default function ChatScreen() {
         ) : null}
       </View>
 
+      {!historyLoaded || !personaLoaded ? (
+        loadFailed ? (
+          <ErrorView
+            title="Couldn't load this chat"
+            message="Check your connection and try again."
+            onRetry={retryLoad}
+          />
+        ) : (
+          <SandTimerLoader message="Loading your conversation..." />
+        )
+      ) : (
       <KeyboardAvoidingView
         style={[styles.flex, Platform.OS === 'android' && { paddingBottom: androidKeyboardHeight }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -247,7 +302,10 @@ export default function ChatScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
           renderItem={({ item }) => <ChatBubble message={item} />}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onContentSizeChange={() => {
+            listRef.current?.scrollToEnd({ animated: scrolledInitiallyRef.current });
+            scrolledInitiallyRef.current = true;
+          }}
           ListHeaderComponent={
             hasMore ? (
               <Pressable onPress={handleLoadOlder} style={styles.loadOlder} disabled={loadingOlder}>
@@ -286,16 +344,19 @@ export default function ChatScreen() {
               {error}
             </AppText>
             <View style={styles.errorActions}>
-              <Pressable onPress={() => router.push('/wallet/topup')}>
-                <AppText variant="label" color={colors.primary}>
-                  Top up
-                </AppText>
-              </Pressable>
-              <Pressable onPress={() => router.push(getPaywallRoute(profile))}>
-                <AppText variant="label" color={colors.primary}>
-                  Upgrade
-                </AppText>
-              </Pressable>
+              {hasAccess(profile) ? (
+                <Pressable onPress={() => router.push('/wallet/topup')}>
+                  <AppText variant="label" color={colors.primary}>
+                    Top up
+                  </AppText>
+                </Pressable>
+              ) : (
+                <Pressable onPress={() => router.push(getPaywallRoute(profile))}>
+                  <AppText variant="label" color={colors.primary}>
+                    Upgrade
+                  </AppText>
+                </Pressable>
+              )}
             </View>
           </View>
         ) : null}
@@ -318,6 +379,7 @@ export default function ChatScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      )}
     </Screen>
   );
 }

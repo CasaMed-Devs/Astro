@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 
-import { getOrCreateChat, handleUserMessage, listMessages } from '../services/chat.service';
+import { getOrCreateChat, getRecentChat, handleUserMessage, listMessages } from '../services/chat.service';
 import { listProfiles } from '../services/personaApi.service';
 import { getAllPersonaConfigs } from '../services/personaConfig.service';
 import { UnauthorizedError } from '../utils/errors';
@@ -48,6 +48,13 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
   const { limit, before } = listMessagesQuerySchema.parse(req.query);
   const result = await listMessages(req.uid, chatId, { limit, before });
   res.json(result);
+}
+
+export async function getRecentChatHandler(req: Request, res: Response): Promise<void> {
+  if (!req.uid) throw new UnauthorizedError();
+
+  const chat = await getRecentChat(req.uid);
+  res.json({ chat });
 }
 
 export async function listPersonas(_req: Request, res: Response): Promise<void> {

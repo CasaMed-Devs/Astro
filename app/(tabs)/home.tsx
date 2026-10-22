@@ -10,7 +10,7 @@ import { PersonaCard } from '@/features/astrologers/components/PersonaCard';
 import { fetchAstrologerProfiles } from '@/services/astrologers.service';
 import type { AstrologerProfile } from '@/features/astrologers/types';
 import { usePaywallData } from '@/services/paywallData';
-import { getPaywallRoute } from '@/utils/paywall';
+import { getPaywallRoute, hasAccess } from '@/utils/paywall';
 import { colors, radii, spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
@@ -45,10 +45,13 @@ export default function HomeScreen() {
             {profile?.credits ?? 0}
           </AppText>
         </View>
-        <Pressable style={styles.upsellButton} onPress={() => router.push(getPaywallRoute(profile))}>
+        <Pressable
+          style={styles.upsellButton}
+          onPress={() => router.push(hasAccess(profile) ? '/wallet/topup' : getPaywallRoute(profile))}
+        >
           <Crown size={16} color={colors.onGradientText} />
           <AppText variant="buttonLabel" color={colors.onGradientText}>
-            {profile?.trialCreditsClaimed ? 'Add credits' : trialLabel}
+            {hasAccess(profile) || profile?.trialCreditsClaimed ? 'Add credits' : trialLabel}
           </AppText>
         </Pressable>
       </View>

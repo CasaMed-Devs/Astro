@@ -132,12 +132,64 @@ export async function handleUserMessage(
     context: mergedContext,
   });
 
+  // Feeds the astrologers tab's "Continue chat" card (getRecentChat). Never
+  // allowed to fail the send — the reply is already paid for and generated.
+  await adminFirestore()
+    .collection('personaChats')
+    .doc(chatId)
+    .set(
+      { lastMessage: toPreview(result.reply.text), lastMessageAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    )
+    .catch((error) => console.warn(`[chat] Could not record last message for ${chatId}`, error));
+
   return {
     reply: result.reply.text,
     paragraphs: result.reply.paragraphs,
     meta: result.meta,
     remainingCredits,
   };
+}
+
+const PREVIEW_MAX_LENGTH = 120;
+
+function toPreview(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > PREVIEW_MAX_LENGTH ? `${flat.slice(0, PREVIEW_MAX_LENGTH - 1)}…` : flat;
+}
+
+export interface RecentChat {
+  chatId: string;
+  personaId: string;
+  lastMessage: string | null;
+  lastMessageAt: string; // ISO
+}
+
+/**
+ * The user's most recently messaged chat, or null. Only chats with a
+ * lastMessageAt count — that's set on each successful send, so chats opened
+ * but never messaged (or last used before it existed) are left out.
+ * Filtered and sorted in memory: one user has only a handful of chats, and
+ * this way no composite index is needed.
+ */
+export async function getRecentChat(uid: string): Promise<RecentChat | null> {
+  const snapshot = await adminFirestore().collection('personaChats').where('userId', '==', uid).get();
+
+  let latest: RecentChat | null = null;
+  let latestMs = -Infinity;
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const at: Date | undefined = data.lastMessageAt?.toDate?.();
+    if (!at || at.getTime() <= latestMs) continue;
+    latestMs = at.getTime();
+    latest = {
+      chatId: doc.id,
+      personaId: data.profileId,
+      lastMessage: data.lastMessage ?? null,
+      lastMessageAt: at.toISOString(),
+    };
+  }
+  return latest;
 }
 
 export interface ChatMessageResponse {
@@ -159,21 +211,32 @@ export async function listMessages(
   chatId: string,
   opts: { limit?: number; before?: number },
 ): Promise<ListMessagesResult> {
-  await requireOwnedChat(uid, chatId);
-
-  const remainingCredits = (await getRemainingCredits(uid)) ?? 0;
+  // Ownership check, balance and the vendor history fetch run in parallel —
+  // opening a chat used to wait on all three back to back. The history is
+  // only returned once ownership has passed (Promise.all rejects otherwise).
+  // The page result is settled separately so a brand-new chat's
+  // "conversation not found" doesn't mask an ownership failure.
+  const [, credits, page] = await Promise.all([
+    requireOwnedChat(uid, chatId),
+    getRemainingCredits(uid),
+    listConversationMessages(chatId, opts).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    ),
+  ]);
+  const remainingCredits = credits ?? 0;
 
   try {
-    const page = await listConversationMessages(chatId, opts);
+    if (!page.ok) throw page.error;
     return {
-      messages: page.messages.map((message) => ({
+      messages: page.value.messages.map((message) => ({
         id: String(message.seq),
         sender: message.role === 'user' ? 'user' : 'astrologer',
         text: message.text,
         createdAt: new Date(message.at).toISOString(),
       })),
-      hasMore: page.has_more,
-      nextCursor: page.next_cursor,
+      hasMore: page.value.has_more,
+      nextCursor: page.value.next_cursor,
       remainingCredits,
     };
   } catch (error) {

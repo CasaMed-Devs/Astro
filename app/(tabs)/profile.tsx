@@ -23,7 +23,7 @@ import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
 import { openSupportEmail } from '@/features/support/supportEmail';
 import { usePaywallData } from '@/services/paywallData';
-import { getPaywallRoute } from '@/utils/paywall';
+import { getPaywallRoute, hasAccess } from '@/utils/paywall';
 import { showErrorToast } from '@/utils/toast';
 import type { LegalDocId } from '@/constants/legal';
 import { colors, radii, spacing } from '@/constants/theme';
@@ -72,12 +72,15 @@ export default function ProfileScreen() {
         <ProfileRow label="Place of birth" value={profile?.placeOfBirth ?? '—'} />
       </Card>
 
-      <Pressable style={styles.menuRow} onPress={() => router.push(getPaywallRoute(profile))}>
-        <Crown size={20} color={colors.primary} />
-        <AppText variant="body" style={styles.menuLabel}>
-          {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : trialLabel}
-        </AppText>
-      </Pressable>
+      {/* Trial/subscribed users add credits via the wallet row below instead. */}
+      {hasAccess(profile) ? null : (
+        <Pressable style={styles.menuRow} onPress={() => router.push(getPaywallRoute(profile))}>
+          <Crown size={20} color={colors.primary} />
+          <AppText variant="body" style={styles.menuLabel}>
+            {profile?.trialCreditsClaimed ? 'Subscribe for more credits' : trialLabel}
+          </AppText>
+        </Pressable>
+      )}
 
       <Pressable style={styles.menuRow} onPress={() => router.push('/wallet/topup')}>
         <Wallet size={20} color={colors.textSecondary} />

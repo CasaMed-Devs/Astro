@@ -8,6 +8,7 @@ export function pollFor<T>(
   fetchFn: () => Promise<T>,
   callback: (value: T) => void,
   intervalMs: number,
+  onError?: (error: unknown) => void,
 ): () => void {
   let cancelled = false;
   // Ticks can overlap on a slow connection (a new one fires before the last
@@ -21,8 +22,9 @@ export function pollFor<T>(
     try {
       const value = await fetchFn();
       if (!cancelled && thisTick === latestTick) callback(value);
-    } catch {
-      // Transient network errors are ignored; the next tick will retry.
+    } catch (error) {
+      // Transient network errors don't stop polling; the next tick retries.
+      if (!cancelled && thisTick === latestTick) onError?.(error);
     }
   };
 

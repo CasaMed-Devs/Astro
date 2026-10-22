@@ -6,12 +6,12 @@ import {
   INVOICE_HALF_GST_RATE_PERCENT,
   INVOICE_SAC,
   INVOICE_SELLER,
-  TRIAL_PERIOD_DAYS,
 } from '../config/invoice';
+import { getTrialDurationDays } from '../config/plans';
 import { getUserProfile } from './userProfile.service';
 import type { TransactionPurpose } from './transactions.service';
 import { NotFoundError } from '../utils/errors';
-import type { UserProfileRecord } from '../types';
+import type { SubscriptionCycleRecord, UserProfileRecord } from '../types';
 
 export type InvoiceType = 'trial' | 'monthly' | 'topup' | 'report';
 
@@ -96,8 +96,9 @@ export function formatInvoiceNumber(monthKey: string, sequence: number): string 
   return `INV-${monthKey}-${String(sequence).padStart(6, '0')}`;
 }
 
-export function computeBillingPeriodEnd(type: InvoiceType, start: Date): Date {
-  if (type === 'trial') return new Date(start.getTime() + TRIAL_PERIOD_DAYS * DAY_MS);
+/** `trialDays` only matters for a trial — the admin-set trial length (config/plans.ts's getTrialDurationDays). */
+export function computeBillingPeriodEnd(type: InvoiceType, start: Date, trialDays: number): Date {
+  if (type === 'trial') return new Date(start.getTime() + trialDays * DAY_MS);
   // One-off purchases (credits, report unlock) bill a single instant, not a cycle.
   if (type !== 'monthly') return new Date(start.getTime());
 
@@ -177,12 +178,27 @@ function invoicableEntry(
   return { id, data, type, paidAt, amount };
 }
 
+/**
+ * The trial's real end — the first charge date Razorpay was given, stored on
+ * the cycle as trialEndsAt. Trials started before that field existed fall
+ * back to the current admin-set trial length.
+ */
+async function trialPeriodEnd(data: StoredTransaction, paidAt: Date): Promise<Date> {
+  if (data.subscriptionId) {
+    const cycle = await adminFirestore().collection('subscriptions').doc(data.subscriptionId).get();
+    const trialEndsAt = (cycle.data() as SubscriptionCycleRecord | undefined)?.trialEndsAt;
+    if (trialEndsAt) return trialEndsAt.toDate();
+  }
+  return computeBillingPeriodEnd('trial', paidAt, await getTrialDurationDays());
+}
+
 async function buildInvoice(
   entry: { id: string; data: StoredTransaction; type: InvoiceType; paidAt: Date; amount: number },
   customer: { name: string | null; phoneNumber: string },
 ): Promise<Invoice> {
   const { id, data, type, paidAt, amount } = entry;
   const invoiceNumber = data.invoiceNumber ?? (await assignInvoiceNumber(id, paidAt));
+  const periodEnd = type === 'trial' ? await trialPeriodEnd(data, paidAt) : computeBillingPeriodEnd(type, paidAt, 0);
   return {
     id,
     invoiceNumber,
@@ -194,7 +210,7 @@ async function buildInvoice(
     paymentMethod: data.paymentMethod ?? null,
     paidAt: paidAt.toISOString(),
     periodStart: paidAt.toISOString(),
-    periodEnd: computeBillingPeriodEnd(type, paidAt).toISOString(),
+    periodEnd: periodEnd.toISOString(),
     currency: data.currency ?? 'INR',
     amount,
     ...computeGstBreakdown(amount),

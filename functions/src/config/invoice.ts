@@ -25,10 +25,3 @@ export const INVOICE_SAC = { code: '998439', description: 'Other on-line content
  * is always split into equal CGST and SGST halves.
  */
 export const INVOICE_HALF_GST_RATE_PERCENT = 9;
-
-/**
- * How long the paid trial lasts before the plan's first charge — must match
- * the `start_at` delay mandate.service.ts's startNewMandateSubscription
- * gives Razorpay.
- */
-export const TRIAL_PERIOD_DAYS = 1;

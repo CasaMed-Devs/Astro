@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { ArrowRight, Check, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
@@ -17,6 +17,7 @@ import {
 import { MetaEvents } from '@/services/analytics';
 import { colors, fonts, radii, shadows, spacing } from '@/constants/theme';
 import { AppError } from '@/utils/errors';
+import { hasAccess } from '@/utils/paywall';
 
 // Only used when the user has no auto-debit mandate yet (skipped the trial):
 // the payment registers one at the subscription amount. UPI Autopay is the
@@ -148,11 +149,19 @@ export default function UpgradeScreen() {
     }
   };
 
-  // Closing without paying offers top-up instead — another way to keep chatting.
-  const handleClose = () => router.replace('/wallet/topup');
+  // Top-up is locked for users who see this screen (their access has ended),
+  // so closing just goes home.
+  const handleClose = () => router.replace('/(tabs)/home');
 
   const pricingReady = amount != null && currency != null;
   const currencySymbol = currency === 'INR' ? '₹' : '';
+
+  // Still in a trial or paid month (e.g. reached via a stale link, or the
+  // profile caught up after this screen opened) — they need credits, not a
+  // subscription. Waits while a checkout is in flight so success can show.
+  if (hasAccess(profile) && !processing && !waiting && !succeeded) {
+    return <Redirect href="/wallet/topup" />;
+  }
 
   if (succeeded) {
     return (
@@ -248,9 +257,6 @@ export default function UpgradeScreen() {
           disabled={!pricingReady || !session}
           style={styles.ctaButton}
         />
-        <Pressable onPress={handleClose}>
-          <AppText style={styles.skipLabel}>Top up instead</AppText>
-        </Pressable>
       </View>
     </Screen>
   );
@@ -374,12 +380,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   ctaButton: { height: 56, alignSelf: 'stretch' },
-  skipLabel: {
-    textAlign: 'center',
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 15,
-    color: colors.textSecondary,
-  },
   successContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.md },
   successIcon: {
     width: 72,

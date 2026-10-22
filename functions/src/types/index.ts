@@ -75,6 +75,11 @@ export interface UserProfileRecord {
   // entitlement logic. Purely informational/for support-debugging; nothing
   // reads this to decide credits or access, only mandateStatus does.
   razorpayStatus?: string;
+  // End of the period the user has already paid for — the trial's end, or
+  // the current paid month's end. Until then a cancelled/failing mandate
+  // keeps mandateStatus 'active' (see mandate.service.ts's
+  // updateNewMandateStatus); the next status sync after it drops them.
+  accessEndsAt?: FirebaseFirestore.Timestamp;
   // Set once the one-time Rs.49 kundali payment is verified — lifetime access.
   kundaliUnlocked?: boolean;
   kundaliUnlockedAt?: FirebaseFirestore.Timestamp;
@@ -130,6 +135,9 @@ export interface SubscriptionCycleRecord {
   lastPaymentAmount?: number; // Rupees
   lastPaymentAt?: FirebaseFirestore.Timestamp;
   currentPeriodStart?: FirebaseFirestore.Timestamp;
+  // Trial cycles only: when the plan's first real charge is scheduled
+  // (Razorpay start_at) — the trial invoice's period end.
+  trialEndsAt?: FirebaseFirestore.Timestamp;
   lastTransactionId?: string; // transactions/{id}
   createdAt?: FirebaseFirestore.Timestamp;
   updatedAt?: FirebaseFirestore.Timestamp;

@@ -102,6 +102,8 @@ jest.mock('./mandate.service', () => ({
   stopMandateForAdmin: jest.fn(async () => 'cancelled'),
   hasLiveAdminGrant: (user: { adminSubscription?: { expiresAt: Timestamp } } | undefined) =>
     Boolean(user?.adminSubscription && user.adminSubscription.expiresAt.toMillis() > Date.now()),
+  hasPaidAccess: (user: { accessEndsAt?: Timestamp } | undefined) =>
+    Boolean(user?.accessEndsAt && user.accessEndsAt.toMillis() > Date.now()),
 }));
 
 import { adminFirestore } from '../config/firebase-admin';

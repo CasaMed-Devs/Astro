@@ -194,14 +194,17 @@ async function startNewMandateSubscription(
   const trialDetails =
     purpose === 'trial' ? await Promise.all([getTrialAmount(), getTrialDurationDays()]) : null;
   const trial = trialDetails?.[0] ?? null;
+  const trialStartAtSeconds = trialDetails
+    ? Math.floor((Date.now() + trialDetails[1] * DAY_MS) / 1000)
+    : null;
 
   const subscription = await createRecurringSubscription(
     planId,
     SUBSCRIPTION_TOTAL_COUNT,
     { uid, purpose },
-    trialDetails
+    trialDetails && trialStartAtSeconds != null
       ? {
-          startAtSeconds: Math.floor((Date.now() + trialDetails[1] * DAY_MS) / 1000),
+          startAtSeconds: trialStartAtSeconds,
           addonAmountRupees: trialDetails[0].amount,
           addonName: 'Astro108 Trial',
         }
@@ -214,6 +217,7 @@ async function startNewMandateSubscription(
     razorpayStatus: subscription.status,
     mandateMethod: method,
     registrationAmount: trial ? trial.amount : subscriptionAmount.amount,
+    ...(trialStartAtSeconds != null ? { trialEndsAt: Timestamp.fromMillis(trialStartAtSeconds * 1000) } : {}),
   });
 
   await adminFirestore().collection('users').doc(uid).set(
@@ -342,7 +346,15 @@ export async function updateNewMandateStatus(
   status: MandateStatus,
   razorpayStatus: string,
 ): Promise<MandateStatus> {
-  await updateCurrentSubscription(uid, { status, razorpayStatus }, subscriptionId);
+  const cycleSnapshot = await adminFirestore().collection('subscriptions').doc(subscriptionId).get();
+  const cycle = cycleSnapshot.data() as SubscriptionCycleRecord | undefined;
+  // Razorpay keeps a trial at 'authenticated' until its first real charge.
+  // Once we've marked the cycle entitled, that (or 'active') must not
+  // downgrade it — doing so put paying trial users back on the paywall.
+  const effectiveStatus: MandateStatus =
+    cycle?.status === 'active' && LIVE_SUBSCRIPTION_STATUSES.has(razorpayStatus) ? 'active' : status;
+
+  await updateCurrentSubscription(uid, { status: effectiveStatus, razorpayStatus }, subscriptionId);
 
   const userRef = adminFirestore().collection('users').doc(uid);
   const user = (await userRef.get()).data() as UserProfileRecord | undefined;
@@ -354,24 +366,51 @@ export async function updateNewMandateStatus(
     return user.mandateStatus ?? 'none';
   }
 
-  // An admin-given subscription that hasn't run out keeps the user entitled
-  // whatever Razorpay says about their (old or abandoned) mandate.
-  if (status !== 'active' && hasLiveAdminGrant(user)) {
+  // An admin-given subscription that hasn't run out, or a trial/month the
+  // user already paid for, keeps them entitled whatever Razorpay says about
+  // the mandate (cancelled, or a renewal pending/halted) — until it ends.
+  if (effectiveStatus !== 'active' && (hasLiveAdminGrant(user) || hasPaidAccess(user))) {
     await userRef.set({ razorpayStatus, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return 'active';
   }
 
   await userRef.set(
-    { mandateStatus: status, razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
+    { mandateStatus: effectiveStatus, razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
     { merge: true },
   );
-  return status;
+  return effectiveStatus;
 }
 
 /** True while an admin-given subscription (dashboard "Give Subscription") is still in force. */
 export function hasLiveAdminGrant(user: UserProfileRecord | undefined): boolean {
   const expiresAt = user?.adminSubscription?.expiresAt;
   return Boolean(expiresAt && expiresAt.toMillis() > Date.now());
+}
+
+/** True while the trial or month the user already paid for hasn't ended. */
+export function hasPaidAccess(user: UserProfileRecord | undefined): boolean {
+  const endsAt = user?.accessEndsAt;
+  return Boolean(endsAt && endsAt.toMillis() > Date.now());
+}
+
+// Razorpay statuses for a live, paid-up mandate — 'authenticated' is a trial
+// whose first real charge isn't due yet.
+const LIVE_SUBSCRIPTION_STATUSES = new Set(['authenticated', 'active']);
+
+/**
+ * End of the period just paid for, from Razorpay: `current_end` for a paid
+ * month, `start_at` (the first real charge) while still in the trial. Falls
+ * back to `fallback`, then 30 days from now, if Razorpay can't be reached.
+ */
+async function periodEndFor(subscriptionId: string, fallback?: Timestamp): Promise<Timestamp> {
+  try {
+    const subscription = await fetchSubscription(subscriptionId);
+    const seconds = subscription.current_end ?? subscription.start_at ?? subscription.charge_at;
+    if (seconds) return Timestamp.fromMillis(seconds * 1000);
+  } catch (error) {
+    console.warn(`[mandate] Could not fetch period end for ${subscriptionId}`, error);
+  }
+  return fallback ?? Timestamp.fromMillis(Date.now() + 30 * DAY_MS);
 }
 
 // Razorpay statuses where a mandate is authorised and can still be charged.
@@ -453,10 +492,12 @@ export async function applyNewMandateEntitlement(
     { status: 'active', razorpayStatus, lastPaymentId: paymentId, currentPeriodStart: Timestamp.now() },
     subscriptionId,
   );
+  const accessEndsAt = await periodEndFor(subscriptionId, isTrial ? cycle?.trialEndsAt : undefined);
   await adminFirestore().collection('users').doc(uid).set(
     {
       mandateStatus: 'active',
       razorpayStatus,
+      accessEndsAt,
       subscriptionActivatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     },
@@ -506,8 +547,11 @@ export async function applyNewMandateRenewal(
     },
     subscriptionId,
   );
+  // A successful charge (incl. one Razorpay retried after a pending/halted
+  // renewal) means the user is paid up for this new month.
+  const accessEndsAt = await periodEndFor(subscriptionId);
   await adminFirestore().collection('users').doc(uid).set(
-    { razorpayStatus, updatedAt: FieldValue.serverTimestamp() },
+    { mandateStatus: 'active', razorpayStatus, accessEndsAt, updatedAt: FieldValue.serverTimestamp() },
     { merge: true },
   );
   await recordTransaction({

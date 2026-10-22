@@ -95,12 +95,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       lastReconcileAt.current = now;
       try {
         const result = await reconcilePayments();
-        // Refresh on a resolved order, or when the live Razorpay check just
-        // downgraded the mandate — the paywall gate reads profile.mandateStatus,
-        // so it needs the corrected value too. (Checking `=== 'cancelled'`
-        // rather than diffing against `profile` here avoids a stale-closure
-        // read of profile state inside this effect.)
-        if (result.resolved.length > 0 || result.mandateStatus === 'cancelled') {
+        // Refresh on a resolved order, or whenever the live Razorpay check
+        // reports no access (a paid period just ended) — the paywall gate
+        // reads profile.mandateStatus, so it needs the corrected value too.
+        // (Checking the result rather than diffing against `profile` here
+        // avoids a stale-closure read of profile state inside this effect.)
+        if (result.resolved.length > 0 || result.mandateStatus !== 'active') {
           await fetchProfile();
         }
       } catch (error) {

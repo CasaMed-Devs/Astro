@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
 jest.mock('../config/firebase-admin', () => ({ adminFirestore: jest.fn() }));
+jest.mock('../config/plans', () => ({ getTrialDurationDays: jest.fn().mockResolvedValue(3) }));
 
 import { adminFirestore } from '../config/firebase-admin';
 import {
@@ -94,23 +95,28 @@ describe('invoice numbering', () => {
 
 describe('computeBillingPeriodEnd', () => {
   it('ends a trial one day after it starts', () => {
-    const end = computeBillingPeriodEnd('trial', new Date('2026-10-01T06:00:00Z'));
+    const end = computeBillingPeriodEnd('trial', new Date('2026-10-01T06:00:00Z'), 1);
     expect(end.toISOString()).toBe('2026-10-02T06:00:00.000Z');
   });
 
+  it('ends a trial after the admin-set number of days', () => {
+    const end = computeBillingPeriodEnd('trial', new Date('2026-10-01T06:00:00Z'), 3);
+    expect(end.toISOString()).toBe('2026-10-04T06:00:00.000Z');
+  });
+
   it('ends a monthly period on the same day next month', () => {
-    const end = computeBillingPeriodEnd('monthly', new Date('2026-10-02T06:00:00Z'));
+    const end = computeBillingPeriodEnd('monthly', new Date('2026-10-02T06:00:00Z'), 3);
     expect(end.toISOString()).toBe('2026-11-02T06:00:00.000Z');
   });
 
   it('clamps to the end of a shorter month', () => {
-    const end = computeBillingPeriodEnd('monthly', new Date('2027-01-31T06:00:00Z'));
+    const end = computeBillingPeriodEnd('monthly', new Date('2027-01-31T06:00:00Z'), 3);
     expect(end.toISOString()).toBe('2027-02-28T06:00:00.000Z');
   });
 
   it.each(['topup', 'report'] as const)('bills a one-off %s purchase as a single instant', (type) => {
     const start = new Date('2026-10-01T06:00:00Z');
-    expect(computeBillingPeriodEnd(type, start).toISOString()).toBe(start.toISOString());
+    expect(computeBillingPeriodEnd(type, start, 3).toISOString()).toBe(start.toISOString());
   });
 });
 
