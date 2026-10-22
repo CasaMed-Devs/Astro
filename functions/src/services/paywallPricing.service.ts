@@ -32,6 +32,11 @@ export interface PaywallPricingRecord {
   // falls back to env.trialDurationDays — see config/plans.ts's
   // getTrialDurationDays.
   trialDurationDays?: number;
+  // Fixed credit grants, admin-editable, independent of trialAmount /
+  // subscriptionAmount / rupeesPerCredit. See config/plans.ts's
+  // getTrialCredits / getSubscriptionCredits.
+  trialCredits?: number;
+  subscriptionCredits?: number;
   // The legacy token engine's display/charge price (config/plans.ts's
   // getSubscriptionAmount) — left as-is, still used for every pre-existing
   // mandate registered before the Subscriptions API switch.

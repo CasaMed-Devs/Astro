@@ -2,10 +2,11 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { adminFirestore } from '../config/firebase-admin';
 import {
-  getRupeesPerCredit,
   getSubscriptionAmount,
+  getSubscriptionCredits,
   getSubscriptionPlanId,
   getTrialAmount,
+  getTrialCredits,
   getTrialDurationDays,
 } from '../config/plans';
 import {
@@ -128,14 +129,15 @@ async function getUserOrThrow(uid: string): Promise<UserProfileRecord> {
 }
 
 /**
- * Grants the one-time 5-credit trial gift, idempotent per user forever (not
+ * Grants the one-time trial credit gift (amount admin-configurable via
+ * config/plans.ts's getTrialCredits), idempotent per user forever (not
  * just per payment) — keyed by a fixed ledger doc id so even a retried
  * completion call can't grant it twice, on top of the trialCreditsClaimed
  * flag fast-path check. (account.controller.ts's deleteAccount also deletes
  * this ledger doc, so a deleted-and-recreated account isn't wrongly blocked
  * from ever claiming the gift again.)
  */
-async function grantTrialCreditsOnce(uid: string): Promise<void> {
+async function grantTrialCreditsOnce(uid: string, credits: number): Promise<void> {
   const db = adminFirestore();
   const userRef = db.collection('users').doc(uid);
   const ledgerRef = db.collection('payments').doc(`trial_credits_${uid}`);
@@ -152,14 +154,14 @@ async function grantTrialCreditsOnce(uid: string): Promise<void> {
     if (user.trialCreditsClaimed) return;
 
     transaction.update(userRef, {
-      credits: FieldValue.increment(5),
+      credits: FieldValue.increment(credits),
       trialCreditsClaimed: true,
       updatedAt: FieldValue.serverTimestamp(),
     });
     transaction.set(ledgerRef, {
       userId: uid,
       purpose: 'trial',
-      creditsAwarded: 5,
+      creditsAwarded: credits,
       status: 'paid',
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -436,12 +438,13 @@ export async function applyNewMandateEntitlement(
 
   let creditsAwarded: number | undefined;
   if (isTrial) {
-    await grantTrialCreditsOnce(uid);
-    creditsAwarded = 5;
+    const trialCredits = await getTrialCredits();
+    await grantTrialCreditsOnce(uid, trialCredits);
+    creditsAwarded = trialCredits;
   } else {
     const subscriptionAmount = await getSubscriptionAmount();
-    const rupeesPerCredit = await getRupeesPerCredit();
-    const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+    const subscriptionCredits = await getSubscriptionCredits();
+    const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 0, 'subscription', subscriptionCredits);
     creditsAwarded = result.creditsAwarded;
   }
 
@@ -487,8 +490,8 @@ export async function applyNewMandateRenewal(
   razorpayStatus: string,
 ): Promise<void> {
   const subscriptionAmount = await getSubscriptionAmount();
-  const rupeesPerCredit = await getRupeesPerCredit();
-  const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 1 / rupeesPerCredit, 'subscription');
+  const subscriptionCredits = await getSubscriptionCredits();
+  const result = await creditWallet(uid, subscriptionAmount.amount, paymentId, 0, 'subscription', subscriptionCredits);
 
   await updateCurrentSubscription(
     uid,

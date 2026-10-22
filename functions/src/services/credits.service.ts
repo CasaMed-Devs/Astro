@@ -69,6 +69,11 @@ export async function creditWallet(
   // 'topup' = user-initiated wallet recharge (shown in wallet history);
   // 'subscription' = Rs.299 plan charges (auto-debit, upgrade-now).
   purpose: 'topup' | 'subscription' = 'topup',
+  // When provided, grants exactly this many credits instead of
+  // Math.floor(amountRupees * creditsPerRupee) — used for subscription
+  // charges, which grant a flat admin-configured credit count
+  // (config/plans.ts's getSubscriptionCredits) regardless of amount/rate.
+  fixedCreditsAwarded?: number,
 ): Promise<CreditWalletResult> {
   const db = adminFirestore();
   const userRef = db.collection('users').doc(uid);
@@ -90,7 +95,7 @@ export async function creditWallet(
       return { creditsAwarded: 0, newBalance: currentCredits, alreadyProcessed: true };
     }
 
-    const creditsAwarded = Math.floor(amountRupees * creditsPerRupee);
+    const creditsAwarded = fixedCreditsAwarded ?? Math.floor(amountRupees * creditsPerRupee);
 
     transaction.update(userRef, {
       credits: FieldValue.increment(creditsAwarded),

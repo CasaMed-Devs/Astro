@@ -20,6 +20,12 @@ export class InsufficientCreditsError extends HttpError {
   }
 }
 
+export class SubscriptionRequiredError extends HttpError {
+  constructor(message = 'Wallet top-up is available only with an active trial or subscription.') {
+    super(403, message);
+  }
+}
+
 export class NotFoundError extends HttpError {
   constructor(message = 'Not found.') {
     super(404, message);

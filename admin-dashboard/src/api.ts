@@ -78,7 +78,11 @@ export interface PricingResponse {
   trialAmount: PriceValue;
   /** Days between mandate registration and the first real subscription charge. */
   trialDurationDays?: number;
+  /** Fixed credits granted once on the trial charge. */
+  trialCredits?: number;
   subscriptionAmount: PriceValue;
+  /** Fixed credits granted on every subscription charge (first + renewals). */
+  subscriptionCredits?: number;
   report: PriceValue;
   topUp: TopUpConfigValue;
 }
@@ -87,7 +91,9 @@ export interface PricingUpdate {
   creditPricing?: CreditPricingValue;
   trialAmount?: PriceValue;
   trialDurationDays?: number;
+  trialCredits?: number;
   subscriptionAmount?: PriceValue;
+  subscriptionCredits?: number;
   report?: PriceValue;
   topUp?: TopUpConfigValue;
 }

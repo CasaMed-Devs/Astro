@@ -17,6 +17,8 @@ function PriceForm({
   onSave,
   durationDays,
   onSaveDuration,
+  credits,
+  onSaveCredits,
 }: {
   title: string;
   hint?: string;
@@ -26,10 +28,14 @@ function PriceForm({
   /** When provided, also renders a "Trial duration (days)" field alongside amount/currency. */
   durationDays?: number;
   onSaveDuration?: (days: number) => Promise<void>;
+  /** When provided, also renders a "Credits granted" field. */
+  credits?: number;
+  onSaveCredits?: (credits: number) => Promise<void>;
 }) {
   const [amount, setAmount] = useState(value.amount != null ? String(value.amount) : '');
   const [currency, setCurrency] = useState(value.currency ?? '');
   const [days, setDays] = useState(durationDays != null ? String(durationDays) : '');
+  const [creditCount, setCreditCount] = useState(credits != null ? String(credits) : '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -41,6 +47,10 @@ function PriceForm({
     setDays(durationDays != null ? String(durationDays) : '');
   }, [durationDays]);
 
+  useEffect(() => {
+    setCreditCount(credits != null ? String(credits) : '');
+  }, [credits]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -50,6 +60,9 @@ function PriceForm({
       });
       if (onSaveDuration && days) {
         await onSaveDuration(Number(days));
+      }
+      if (onSaveCredits && creditCount) {
+        await onSaveCredits(Number(creditCount));
       }
     } finally {
       setSaving(false);
@@ -72,6 +85,18 @@ function PriceForm({
           <div className="field-row">
             <label>Trial duration (days)</label>
             <input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
+          </div>
+        ) : null}
+        {onSaveCredits ? (
+          <div className="field-row">
+            <label>Credits granted</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={creditCount}
+              onChange={(e) => setCreditCount(e.target.value)}
+            />
           </div>
         ) : null}
       </div>
@@ -215,7 +240,9 @@ export function PricingPage() {
   const [creditPricing, setCreditPricing] = useState<CreditPricingValue>({});
   const [trialAmount, setTrialAmount] = useState<PriceValue>({});
   const [trialDurationDays, setTrialDurationDays] = useState<number>();
+  const [trialCredits, setTrialCredits] = useState<number>();
   const [subscriptionAmount, setSubscriptionAmount] = useState<PriceValue>({});
+  const [subscriptionCredits, setSubscriptionCredits] = useState<number>();
   const [report, setReport] = useState<PriceValue>({});
   const [topUp, setTopUp] = useState<TopUpConfigValue>({});
   const [banner, setBanner] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
@@ -228,7 +255,9 @@ export function PricingPage() {
         setCreditPricing(data.creditPricing);
         setTrialAmount(data.trialAmount);
         setTrialDurationDays(data.trialDurationDays);
+        setTrialCredits(data.trialCredits);
         setSubscriptionAmount(data.subscriptionAmount);
+        setSubscriptionCredits(data.subscriptionCredits);
         setReport(data.report);
         setTopUp(data.topUp);
       })
@@ -255,19 +284,23 @@ export function PricingPage() {
           <CreditPriceForm value={creditPricing} onSave={(v) => save({ creditPricing: v })} />
           <PriceForm
             title="Trial (mandate registration charge)"
-            hint={`Charged once when a new user sets up auto-debit. Grants 5 free credits the first time only. The day-${(trialDurationDays ?? 1) + 1} auto-debit is then the subscription amount below.`}
-            buttonLabel="Save trial amount & duration"
+            hint={`Charged once when a new user sets up auto-debit. Grants ${trialCredits ?? '—'} credits the first time only. The day-${(trialDurationDays ?? 1) + 1} auto-debit is then the subscription amount below.`}
+            buttonLabel="Save trial settings"
             value={trialAmount}
             onSave={(v) => save({ trialAmount: v })}
             durationDays={trialDurationDays}
             onSaveDuration={(days) => save({ trialDurationDays: days })}
+            credits={trialCredits}
+            onSaveCredits={(c) => save({ trialCredits: c })}
           />
           <PriceForm
             title="Subscription (recurring auto-debit)"
-            hint={`Charged automatically on day ${(trialDurationDays ?? 1) + 1} after the trial, then every 30 days, against the user's saved card/UPI mandate. Also what 'Subscribe now' charges immediately.`}
-            buttonLabel="Save subscription amount"
+            hint={`Charged automatically on day ${(trialDurationDays ?? 1) + 1} after the trial, then every 30 days, against the user's saved card/UPI mandate. Also what 'Subscribe now' charges immediately. Grants ${subscriptionCredits ?? '—'} credits on every charge, added on top of any unused balance.`}
+            buttonLabel="Save subscription settings"
             value={subscriptionAmount}
             onSave={(v) => save({ subscriptionAmount: v })}
+            credits={subscriptionCredits}
+            onSaveCredits={(c) => save({ subscriptionCredits: c })}
           />
           <PriceForm
             title="Kundali report (one-time unlock)"

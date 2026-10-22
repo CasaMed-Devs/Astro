@@ -32,7 +32,7 @@ const REGISTRATION_METHOD = 'upi' as const;
 // chips), exported from Figma, cropped slightly shorter (390x300) here so the
 // whole screen fits without scrolling. Badge/headline/subtext are rendered
 // natively on top of it (see heroTextOverlay) so they stay dynamic.
-const HERO_ASPECT_RATIO = 390 / 300;
+const HERO_ASPECT_RATIO = 390 / 361; // must match hero.png dimensions
 
 const FEATURES = [
   {
@@ -159,7 +159,6 @@ export default function PaywallScreen() {
         description: 'Start your trial',
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
-        method: REGISTRATION_METHOD,
       });
       // Ask the backend to confirm right away (signature-checked); if
       // Razorpay hasn't issued the mandate token yet, fall back to polling
@@ -374,15 +373,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   featureDivider: { height: 1, backgroundColor: colors.border },
-  pricingBlock: { alignItems: 'center', gap: 4 },
+  pricingBlock: { alignItems: 'center', gap: 5 },
   pricingLabel: {
     fontFamily: fonts.bodyBold,
-    fontSize: 18,
+    fontSize: 17,
     color: colors.textPrimary,
+    paddingBottom:1
   },
   priceValue: {
     fontFamily: fonts.display,
-    fontSize: 52,
+    fontSize: 50,
     lineHeight: 60,
     color: colors.primaryDark,
   },

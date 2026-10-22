@@ -132,6 +132,13 @@ export const env = {
     amount: process.env.SUBSCRIPTION_AMOUNT ? Number(process.env.SUBSCRIPTION_AMOUNT) : 299,
     currency: process.env.SUBSCRIPTION_CURRENCY ?? 'INR',
   },
+  // Fixed credits granted on the trial charge and on each subscription
+  // charge (first + every renewal), both admin-editable via
+  // appConfig/paywallPricing, independent of rupeesPerCredit.
+  trialCredits: process.env.TRIAL_CREDITS ? Number(process.env.TRIAL_CREDITS) : 100,
+  subscriptionCredits: process.env.SUBSCRIPTION_CREDITS
+    ? Number(process.env.SUBSCRIPTION_CREDITS)
+    : 1000,
 
   admin: {
     password: process.env.ADMIN_PASSWORD,

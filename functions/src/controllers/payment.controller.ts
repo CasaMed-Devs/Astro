@@ -30,7 +30,12 @@ import {
 import { recordPaymentOrder } from '../services/paymentOrders.service';
 import { recordTransaction, type TransactionVia } from '../services/transactions.service';
 import { unlockKundali } from '../services/report.service';
-import { HttpError, UnauthorizedError, ValidationError } from '../utils/errors';
+import {
+  HttpError,
+  SubscriptionRequiredError,
+  UnauthorizedError,
+  ValidationError,
+} from '../utils/errors';
 
 const verifySchema = z.object({
   orderId: z.string().min(1),
@@ -145,6 +150,11 @@ export async function createTopUpOrder(req: Request, res: Response): Promise<voi
   if (!req.uid) throw new UnauthorizedError();
 
   const { amount } = topUpOrderSchema.parse(req.body);
+
+  // Top-ups are for trial/paid users only — mandateStatus 'active' covers both.
+  const userSnap = await adminFirestore().collection('users').doc(req.uid).get();
+  if (userSnap.get('mandateStatus') !== 'active') throw new SubscriptionRequiredError();
+
   const config = await getTopUpConfig();
 
   if (amount < config.minAmount || amount > config.maxAmount) {

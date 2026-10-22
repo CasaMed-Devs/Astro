@@ -25,7 +25,7 @@ const REGISTRATION_METHOD = 'upi' as const;
 
 // Same hero artwork as the trial paywall (app/paywall/index.tsx), cropped
 // slightly shorter (390x300) so the whole screen fits without scrolling.
-const HERO_ASPECT_RATIO = 390 / 300;
+const HERO_ASPECT_RATIO = 390 / 361; // must match hero.png dimensions
 
 const FEATURES = [
   {
@@ -132,7 +132,6 @@ export default function UpgradeScreen() {
         description: 'Astro108 Plus subscription',
         uid: session?.uid ?? '',
         contact: session?.phoneNumber ?? undefined,
-        method: REGISTRATION_METHOD,
       });
       const verification = await verifySubscriptionPayment(result).catch(() => ({
         status: 'pending' as const,

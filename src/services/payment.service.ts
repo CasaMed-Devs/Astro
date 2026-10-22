@@ -157,15 +157,13 @@ export function verifyTopUpPayment(input: VerifyPaymentInput): Promise<TopUpResu
 
 /**
  * The app never collects a real email from the user (a deliberate product
- * decision — see mandate.service.ts's own comment on the backend), but
- * Razorpay Checkout's email field is otherwise left blank and prompts the
- * user to type one in. Prefilling this same synthetic address (matching
- * exactly what the backend already uses for the Razorpay customer/notify
- * fields) means the user never sees that prompt at all.
+ * decision — see mandate.service.ts's own comment on the backend), so a
+ * fixed placeholder is prefilled into Razorpay Checkout's email field
+ * instead of leaving it blank. Whether this field is shown/editable at all
+ * is controlled by the Razorpay Dashboard's "Collect email from customers"
+ * checkout setting, not by this value.
  */
-function syntheticEmail(uid: string): string {
-  return `${uid}@users.astro101.app`;
-}
+const PLACEHOLDER_EMAIL = 'dummy@gmail.com';
 
 /**
  * Opens the Razorpay checkout UI for a backend-issued one-time order
@@ -188,7 +186,7 @@ export async function openRazorpayCheckout(
       name: options.name,
       description: options.description,
       prefill: {
-        email: syntheticEmail(options.uid),
+        email: PLACEHOLDER_EMAIL,
         ...(options.contact ? { contact: options.contact } : {}),
       },
       readonly: { email: true, contact: Boolean(options.contact) },
@@ -214,7 +212,7 @@ export async function openRazorpayCheckout(
  */
 export async function openRazorpaySubscriptionCheckout(
   subscription: NewMandateSubscription,
-  options: { name: string; description: string; uid: string; contact?: string; method?: MandateMethod },
+  options: { name: string; description: string; uid: string; contact?: string },
 ): Promise<VerifySubscriptionInput> {
   const RazorpayCheckout = loadRazorpayCheckout();
 
@@ -225,9 +223,8 @@ export async function openRazorpaySubscriptionCheckout(
       name: options.name,
       description: options.description,
       prefill: {
-        email: syntheticEmail(options.uid),
+        email: PLACEHOLDER_EMAIL,
         ...(options.contact ? { contact: options.contact } : {}),
-        ...(options.method ? { method: options.method } : {}),
       },
       readonly: { email: true, contact: Boolean(options.contact) },
       hidden: { email: true, contact: Boolean(options.contact) },

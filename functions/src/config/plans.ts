@@ -43,6 +43,30 @@ export async function getSubscriptionAmount(): Promise<ResolvedPrice> {
   };
 }
 
+/**
+ * Fixed number of credits granted the one time a user's trial charge is
+ * entitled (see mandate.service.ts's grantTrialCreditsOnce) — a flat number,
+ * not derived from trialAmount or rupeesPerCredit. Admin-editable via
+ * appConfig/paywallPricing.trialCredits, falling back to env.trialCredits.
+ */
+export async function getTrialCredits(): Promise<number> {
+  const stored = await getPaywallPricingDoc();
+  return stored.trialCredits ?? env.trialCredits;
+}
+
+/**
+ * Fixed number of credits granted on every subscription charge — the first
+ * charge after the trial (or immediately for a direct subscription) and
+ * every renewal — a flat number, not derived from subscriptionAmount or
+ * rupeesPerCredit. Admin-editable via
+ * appConfig/paywallPricing.subscriptionCredits, falling back to
+ * env.subscriptionCredits.
+ */
+export async function getSubscriptionCredits(): Promise<number> {
+  const stored = await getPaywallPricingDoc();
+  return stored.subscriptionCredits ?? env.subscriptionCredits;
+}
+
 class SubscriptionPlanNotConfiguredError extends HttpError {
   constructor() {
     super(503, 'Subscriptions are temporarily unavailable. Please check back soon.');
