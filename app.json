@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Astro108",
-    "slug": "astro101",
+    "slug": "astro108",
     "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -66,9 +66,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "95a5b00f-e9f4-46ad-8b92-2fc433453d59"
+        "projectId": "615634d0-9f4b-4dc8-bad4-42ee295b7319"
       }
     },
-    "owner": "devcasamed"
+    "owner": "animesh1024s-team"
   }
 }
