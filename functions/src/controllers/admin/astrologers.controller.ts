@@ -1,10 +1,9 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 
-import { listProfiles } from '../../services/personaApi.service';
+import { listProfiles, resolvePhotoUrl } from '../../services/personaApi.service';
 import { getAllPersonaConfigs, setPersonaOrder } from '../../services/personaConfig.service';
 
-const PERSONA_API_ORIGIN = 'https://personaapi.web.app';
 
 const updateOrderSchema = z.object({
   order: z.array(z.string().min(1)).min(1),
@@ -20,7 +19,7 @@ export async function listAstrologers(_req: Request, res: Response): Promise<voi
       name: profile.name,
       tagline: profile.tagline,
       city: profile.city,
-      photoUrl: `${PERSONA_API_ORIGIN}${profile.photo_url}`,
+      photoUrl: resolvePhotoUrl(profile.photo_url),
       sortOrder: config?.sortOrder ?? Number.MAX_SAFE_INTEGER,
     };
   });

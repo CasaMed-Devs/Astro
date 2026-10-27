@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Redirect, router } from 'expo-router';
-import { ArrowRight, Check, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
+import { ArrowRight, Check, Crown, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
+import { PlanCard, PlanCardSkeleton } from '@/features/paywall/PlanCard';
 import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
@@ -50,6 +51,9 @@ const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
+ * Design reference: docs/design/paywall.png (shared with app/paywall/index.tsx;
+ * this screen keeps its own headline and plan copy).
+ *
  * Subscription screen. Always opens Razorpay Checkout — credits are added
  * only after the backend confirms a real, signature-verified payment. With an
  * active auto-debit mandate this restarts the 30-day cycle; without one, the
@@ -197,7 +201,7 @@ export default function UpgradeScreen() {
         </Pressable>
         <View style={styles.heroTextOverlay}>
           <View style={styles.badge}>
-            <Sparkles size={16} color={colors.primary} />
+            <Crown size={16} color={colors.primary} />
             <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
           </View>
           <AppText style={styles.headline}>Keep talking.</AppText>
@@ -227,18 +231,13 @@ export default function UpgradeScreen() {
         </View>
 
         {pricingReady ? (
-          <View style={styles.pricingBlock}>
-            <AppText style={styles.pricingLabel}>Astro108 Plus</AppText>
-            <AppText style={styles.priceValue}>
-              {currencySymbol}
-              {amount}
-            </AppText>
-            <AppText style={styles.pricingSubtitle}>Per month · Cancel anytime</AppText>
-          </View>
+          <PlanCard
+            title="Monthly plan"
+            subtitle="Renews every month · Cancel anytime"
+            price={`${currencySymbol}${amount}`}
+          />
         ) : (
-          <View style={styles.pricingBlock}>
-            <View style={styles.priceSkeleton} />
-          </View>
+          <PlanCardSkeleton />
         )}
 
         {error ? (
@@ -250,7 +249,7 @@ export default function UpgradeScreen() {
         {waiting ? <AppText style={styles.waitingText}>Confirming your payment...</AppText> : null}
 
         <Button
-          label={pricingReady ? `Subscribe for ${currencySymbol}${amount}` : 'Subscribe'}
+          label="Subscribe now"
           icon={<ArrowRight size={18} color={colors.onGradientText} />}
           onPress={handleSubscribe}
           loading={processing || waiting}
@@ -297,20 +296,20 @@ const styles = StyleSheet.create({
   badgeText: {
     fontFamily: fonts.bodyBold,
     fontSize: 11,
-    letterSpacing: 0.5,
+    letterSpacing: 2,
     color: colors.primary,
   },
   headline: {
     fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.textPrimary,
     marginTop: spacing.sm,
   },
   headlineAccent: {
     fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.primary,
   },
   subtext: {
@@ -323,6 +322,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, paddingHorizontal: spacing.xl, justifyContent: 'space-evenly' },
   featuresCard: {
     backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radii.lg,
     padding: spacing.lg,
   },
@@ -353,24 +354,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   featureDivider: { height: 1, backgroundColor: colors.border },
-  pricingBlock: { alignItems: 'center', gap: 4 },
-  pricingLabel: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 18,
-    color: colors.textPrimary,
-  },
-  priceValue: {
-    fontFamily: fonts.display,
-    fontSize: 52,
-    lineHeight: 60,
-    color: colors.primaryDark,
-  },
-  pricingSubtitle: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: 15,
-    color: colors.textSecondary,
-  },
-  priceSkeleton: { height: 90, width: '100%', borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
   error: { marginTop: spacing.sm, fontSize: 14, textAlign: 'center' },
   waitingText: {
     marginTop: spacing.sm,

@@ -2,11 +2,10 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 
 import { getOrCreateChat, getRecentChat, handleUserMessage, listMessages } from '../services/chat.service';
-import { listProfiles } from '../services/personaApi.service';
+import { listProfiles, resolvePhotoUrl } from '../services/personaApi.service';
 import { getAllPersonaConfigs } from '../services/personaConfig.service';
 import { UnauthorizedError } from '../utils/errors';
 
-const PERSONA_API_ORIGIN = 'https://personaapi.web.app';
 
 const sendMessageSchema = z.object({
   personaId: z.string().min(1),
@@ -70,7 +69,7 @@ export async function listPersonas(_req: Request, res: Response): Promise<void> 
       method: profile.method,
       city: profile.city,
       age: profile.age,
-      photoUrl: `${PERSONA_API_ORIGIN}${profile.photo_url}`,
+      photoUrl: resolvePhotoUrl(profile.photo_url),
       greeting: profile.greeting,
       openers: profile.openers,
       requiredInputs: profile.required_inputs,

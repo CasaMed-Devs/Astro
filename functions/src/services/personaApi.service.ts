@@ -14,6 +14,15 @@ import {
 } from '../utils/errors';
 
 const BASE_URL = 'https://personaapi.web.app/v1';
+const PERSONA_API_ORIGIN = 'https://personaapi.web.app';
+
+/**
+ * photo_url used to be a path ("/experts/x.jpg") and is now a full URL;
+ * accept both so a change on Persona's side can't break avatars again.
+ */
+export function resolvePhotoUrl(photoUrl: string): string {
+  return /^https?:\/\//i.test(photoUrl) ? photoUrl : `${PERSONA_API_ORIGIN}${photoUrl}`;
+}
 
 export interface PersonaRequiredInput {
   key: string;

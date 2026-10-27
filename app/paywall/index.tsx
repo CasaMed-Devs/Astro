@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowRight, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
+import { ArrowRight, Crown, FileText, MessageCircle, Sparkles, X } from 'lucide-react-native';
 
 import { AppText } from '@/components/common/AppText';
 import { Button } from '@/components/buttons/Button';
 import { Screen } from '@/components/common/Screen';
 import { useAuth } from '@/features/auth/context/AuthProvider';
+import { PlanCard, PlanCardSkeleton } from '@/features/paywall/PlanCard';
 import { usePaywallData } from '@/services/paywallData';
 import {
   getMandate,
@@ -198,7 +199,7 @@ export default function PaywallScreen() {
         </Pressable>
         <View style={styles.heroTextOverlay}>
           <View style={styles.badge}>
-            <Sparkles size={16} color={colors.primary} />
+            <Crown size={16} color={colors.primary} />
             <AppText style={styles.badgeText}>ASTRO108 PLUS</AppText>
           </View>
           <AppText style={styles.headline}>Your Questions.</AppText>
@@ -228,23 +229,13 @@ export default function PaywallScreen() {
         </View>
 
         {pricingReady ? (
-          <View style={styles.pricingBlock}>
-            <AppText style={styles.pricingLabel}>
-              Try for {trialDurationDays} day{trialDurationDays === 1 ? '' : 's'} at only
-            </AppText>
-            <AppText style={styles.priceValue}>
-              {currencySymbol}
-              {trialAmount}
-            </AppText>
-            <AppText style={styles.pricingSubtitle}>
-              Then auto renews at {currencySymbol}
-              {subscriptionAmount ?? '—'}/month · Cancel anytime
-            </AppText>
-          </View>
+          <PlanCard
+            title={`${trialDurationDays}-day trial`}
+            subtitle={`Then ${currencySymbol}${subscriptionAmount ?? '—'}/month · Cancel anytime`}
+            price={`${currencySymbol}${trialAmount}`}
+          />
         ) : (
-          <View style={styles.pricingBlock}>
-            <View style={styles.priceSkeleton} />
-          </View>
+          <PlanCardSkeleton />
         )}
 
         {error ? (
@@ -258,7 +249,7 @@ export default function PaywallScreen() {
         ) : null}
 
         <Button
-          label={pricingReady ? `Start your trial for ${currencySymbol}${trialAmount}` : 'Start trial'}
+          label="Start your trial"
           icon={<ArrowRight size={18} color={colors.onGradientText} />}
           onPress={handleStartTrial}
           loading={processing || waitingForConfirmation}
@@ -268,12 +259,14 @@ export default function PaywallScreen() {
 
         <AppText style={styles.termsText}>
           By continuing you agree to our{' '}
-          <AppText style={styles.termsLink} onPress={() => openLegalDoc('terms')}>
-            Terms
-          </AppText>{' '}
-          and{' '}
-          <AppText style={styles.termsLink} onPress={() => openLegalDoc('privacy')}>
-            Privacy Policy
+          <AppText style={styles.termsLink}>
+            <AppText style={styles.termsLink} onPress={() => openLegalDoc('terms')}>
+              Terms
+            </AppText>{' '}
+            and{' '}
+            <AppText style={styles.termsLink} onPress={() => openLegalDoc('privacy')}>
+              Privacy Policy
+            </AppText>
           </AppText>
           .
         </AppText>
@@ -317,20 +310,20 @@ const styles = StyleSheet.create({
   badgeText: {
     fontFamily: fonts.bodyBold,
     fontSize: 11,
-    letterSpacing: 0.5,
+    letterSpacing: 2,
     color: colors.primary,
   },
   headline: {
     fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.textPrimary,
     marginTop: spacing.sm,
   },
   headlineAccent: {
     fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.primary,
   },
   subtext: {
@@ -343,6 +336,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, paddingHorizontal: spacing.xl, justifyContent: 'space-evenly' },
   featuresCard: {
     backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radii.lg,
     padding: spacing.lg,
   },
@@ -373,26 +368,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   featureDivider: { height: 1, backgroundColor: colors.border },
-  pricingBlock: { alignItems: 'center', gap: 5 },
-  pricingLabel: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 17,
-    color: colors.textPrimary,
-    paddingBottom:1
-  },
-  priceValue: {
-    fontFamily: fonts.display,
-    fontSize: 50,
-    lineHeight: 60,
-    color: colors.primaryDark,
-  },
-  pricingSubtitle: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: 15,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  priceSkeleton: { height: 90, width: '100%', borderRadius: radii.sm, backgroundColor: colors.surfaceAlt },
   error: { marginTop: spacing.sm, fontSize: 14, textAlign: 'center' },
   waitingText: {
     marginTop: spacing.sm,
@@ -411,6 +386,6 @@ const styles = StyleSheet.create({
   termsLink: {
     fontFamily: fonts.bodyBold,
     fontSize: 14,
-    color: colors.textSecondary,
+    color: colors.textPrimary,
   },
 });
